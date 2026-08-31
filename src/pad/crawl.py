@@ -29,9 +29,31 @@ import pandas as pd
 from .split import _ensure_columns
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
-# Kaggle mirrors almost always ship one of these metadata tables at the root.
-META_CSV_NAMES = ("train.csv", "test.csv", "val.csv", "metadata.csv")
+# Kaggle mirrors almost always ship one of these metadata tables at the root;
+# `spoof.csv` / `data.csv` are the single-table names used by several mirrors.
+META_CSV_NAMES = ("train.csv", "test.csv", "val.csv", "metadata.csv", "spoof.csv", "data.csv")
 _IMAGE_COL = "image"
+
+# Official Celeba-Spoof folder-name -> spoof-type index (0 = live).
+# The Data/ layout is: Data/<split>/<subject_id>/<spoof_class>/<img>.png
+_SPOOF_FOLDER_TO_IDX = {
+    "live": 0,
+    "photo": 1,
+    "poster": 2,
+    "a4": 3,
+    "facemask": 4,
+    "face_mask": 4,
+    "upperbody": 5,
+    "upper_body_mask": 5,
+    "regionmask": 6,
+    "region_mask": 6,
+    "pc": 7,
+    "pc_pad": 7,
+    "phone": 8,
+    "3d": 9,
+    "3d_mask": 9,
+    "3dprint": 9,
+}
 
 
 def _sanitize_id(s: str) -> str:
@@ -105,18 +127,77 @@ def _lookup_json(img: Path) -> Optional[dict]:
     return None
 
 
+def _lookup_bb(img: Path) -> Optional[tuple]:
+    """Read the sibling `<img>_BB.txt` bbox (x1 y1 x2 y2 [conf]) if present."""
+    bb_file = img.with_name(f"{img.stem}_BB.txt")
+    if not bb_file.exists():
+        # some mirrors nest under a .txt at a shallower path
+        alt = img.parent / f"{img.stem}_BB.txt"
+        bb_file = alt if alt.exists() else bb_file
+    if not bb_file.exists():
+        return None
+    try:
+        with open(bb_file) as f:
+            toks = f.read().strip().split()
+        if len(toks) < 4:
+            return None
+        return tuple(float(v) for v in toks[:4])
+    except Exception:
+        return None
+
+
+def _official_walk(root: Path, include_unknown: bool):
+    """Walk the official `Data/<split>/<subject_id>/<spoof_class>/<img>` layout.
+
+    Yields (rel_path, d) where d carries bbox (from _BB.txt) + inferred labels.
+    """
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for fn in sorted(filenames):
+            ext = os.path.splitext(fn)[1].lower()
+            if ext not in IMAGE_EXTS:
+                continue
+            img = Path(dirpath) / fn
+            rel = os.path.relpath(img, root).replace("\\", "/")
+            parts = rel.split("/")
+            # expect Data/<split>/<subject>/<spoofclass>/<img>
+            if len(parts) < 4:
+                continue
+            split = parts[1] if parts[0].lower() == "data" else parts[0]
+            subject = parts[2] if parts[0].lower() == "data" else parts[1]
+            spoof_cls = parts[3] if parts[0].lower() == "data" else parts[2]
+            idx = _SPOOF_FOLDER_TO_IDX.get(spoof_cls.lower(), None)
+            if idx is None and not include_unknown:
+                continue
+            bb = _lookup_bb(img)
+            if bb is None:
+                bb = (0.0, 0.0, 0.0, 0.0)
+            d = {
+                "spoof_type": idx if idx is not None else 999,
+                "live": (1 if idx == 0 else 0) if idx is not None else None,
+                "x1": bb[0], "y1": bb[1], "x2": bb[2], "y2": bb[3],
+                "environment": 0, "illumination": 0,
+            }
+            # preserve the split + subject so the manifest is usable downstream
+            d["_split"] = split
+            d["_subject"] = subject
+            yield rel, d
+
+
 def build_crawl(
     root: str,
     out_csv: Optional[str] = None,
     include_unknown: bool = False,
     from_metadata: bool = False,
+    layout: str = "auto",
 ) -> pd.DataFrame:
     """Build the normalized manifest.
 
-    By default walks `root` (images + CSV/JSON metadata) like before.
-    With `from_metadata=True` it only reads the root-level metadata CSVs
-    (train/test/val/metadata.csv) so a full image download is NOT required yet —
-    this is what enables downloading only the sampled subset afterwards.
+    `layout`:
+      * auto        - walk images + CSV/JSON metadata (default; detects CSV)
+      * official    - walk the official Data/<split>/<subject>/<class>/ layout,
+                      reading per-image `<img>_BB.txt` bboxes
+      * kaggle_csv  - metadata-only crawl from root-level CSVs (see from_metadata)
+    `from_metadata=True` only reads root-level CSVs (no images needed).
     """
     root = Path(root)
     if not root.is_dir():
@@ -149,6 +230,9 @@ def build_crawl(
         if st is None:
             st = 0 if live == 1 else 999
 
+        # subject: prefer the official path's explicit subject component
+        subject = d.get("_subject") or _subject_from_rel(rel)
+
         def _bbox(k: str) -> float:
             v = d.get(k)
             try:
@@ -160,7 +244,8 @@ def build_crawl(
             "image_id": image_id,
             "image_path": str(root / rel),
             "rel_path": rel,
-            "subject_id": _subject_from_rel(rel),
+            "subject_id": str(subject),
+            "split": d.get("_split", ""),
             "spoof_type": int(st),
             "is_live": int(live) if live is not None else int(st == 0),
             "environment": _int0(d.get("environment", d.get("env"))),
@@ -170,6 +255,27 @@ def build_crawl(
             "x2": _bbox("x2"),
             "y2": _bbox("y2"),
         }
+
+    # ---- official-layout crawl: Data/<split>/<subject>/<class>/<img> + _BB.txt ----
+    if layout == "official":
+        records = [
+            _make_record(rel, d)
+            for rel, d in _official_walk(root, include_unknown)
+        ]
+        if not records:
+            raise RuntimeError(f"no images found in official layout under {root}")
+        df = pd.DataFrame(records)
+        df = df.drop_duplicates(subset=["image_id"])
+        df = df.sort_values("image_id").reset_index(drop=True)
+        _ensure_columns(df)
+        if out_csv:
+            Path(out_csv).parent.mkdir(parents=True, exist_ok=True)
+            df.to_csv(out_csv, index=False)
+        _log_crawl(df, 0, 0)
+        return df
+
+    if layout not in ("auto", "kaggle_csv", "celeba_json"):
+        raise ValueError(f"unknown layout: {layout}")
 
     # ---- metadata-only crawl: no images on disk needed ----
     if from_metadata:
@@ -255,18 +361,20 @@ def main(
     out: str = "data/crawl.csv",
     include_unknown: bool = False,
     from_metadata: bool = False,
+    layout: str = "auto",
 ) -> None:
     """Crawl the mirror and write the normalized manifest CSV (Fire CLI).
 
-    Use `--from-metadata true` to build the manifest ONLY from the root-level
-    metadata CSVs (train/test/val/metadata.csv) without needing the images on
-    disk — needed before downloading just the sampled subset.
+    `--layout official` walks the official Data/<split>/<subject>/<class>/ layout
+    (uses per-image `<img>_BB.txt` bboxes and the folder name for the spoof type).
+    `--from-metadata true` builds the manifest only from root-level CSVs.
     """
     import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     _ = build_crawl(
-        root, out_csv=out, include_unknown=include_unknown, from_metadata=from_metadata
+        root, out_csv=out, include_unknown=include_unknown,
+        from_metadata=from_metadata, layout=layout,
     )
     print(f"crawl manifest written -> {out}")
 
