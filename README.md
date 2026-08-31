@@ -79,12 +79,17 @@ When running from inside the activated venv, drop the `uv run` prefix
    uv run python -m pad make_splits --config configs/base.yaml
    ```
 6. **Download only the sampled images** (parallel `kaggle datasets download -f`,
-   resume-safe — already-present files are skipped):
+   resume-safe — already-present files are skipped). On success it **re-points the
+   subset CSVs' `image_path` to `data/subset/`** so training reads the downloaded
+   files:
    ```bash
    uv run python -m pad download_subset --subset-dir data/subsets --out-dir data/subset --slug "$PAD_DATASET_SLUG"
    # optional dry check that every sampled path exists in the mirror:
    uv run python -m pad download_subset ... --check-only
    ```
+   > Note: after `download_subset`, don't re-run `make_splits` (it would re-point
+   > `image_path` back to the empty mirror root). If you do, re-run `download_subset`
+   > once more to re-link.
 
 **Caveat:** per-image downloads require the mirror to expose individual files
 (`kaggle datasets files -d <slug>` lists them). If a mirror packs everything

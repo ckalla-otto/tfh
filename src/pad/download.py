@@ -84,6 +84,22 @@ def _collect_rels(subset_dir: Path) -> set:
     return rels
 
 
+def _relink_subset_paths(subset_dir: Path, out_dir: Path) -> None:
+    """Re-point each subset CSV's image_path column at the download dir."""
+    import pandas as pd
+
+    for split in ("train", "val", "test"):
+        f = subset_dir / f"{split}.csv"
+        if not f.exists():
+            continue
+        df = pd.read_csv(f)
+        if "rel_path" not in df.columns:
+            continue
+        df["image_path"] = df["rel_path"].map(lambda r: str(out_dir / r))
+        df.to_csv(f, index=False)
+        print(f"  re-linked {split}.csv image_path -> {out_dir}")
+
+
 def main(
     subset_dir: str = "data/subsets",
     out_dir: str = "data/images",
@@ -140,6 +156,7 @@ def main(
     print(f"download done: ok={ok} fail={fail}")
     if fail:
         raise SystemExit(1)
+    _relink_subset_paths(subset_dir, out_dir)
 
 
 if __name__ == "__main__":
