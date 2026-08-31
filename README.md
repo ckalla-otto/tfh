@@ -65,9 +65,9 @@ end-to-end against the official-layout mirror
 `attentionlayer241/celeba-spoof-for-face-antispoofing`.
 
 ```bash
-# 1. credentials (gitignored)
+# 1. credentials (gitignored). The Python CLIs auto-load this via python-dotenv,
+#    so no `source` is needed:
 cp .env.example .env   # = KAGGLE_USERNAME, KAGGLE_KEY, PAD_DATASET_SLUG
-. .env
 
 # 2. dump the mirror's file listing (paths only — cheap, paginated)
 uv run python -m pad download_subset --slug "$PAD_DATASET_SLUG" \

@@ -247,6 +247,9 @@ def main(
     max_pages: int = None,
 ) -> None:
     """Download (or just verify) the sampled subset images (Fire CLI)."""
+    from .utils import load_env
+
+    load_env()  # ensure Kaggle creds are in os.environ (from .env via dotenv)
     subset_dir = Path(subset_dir)
     out_dir = Path(out_dir)
 

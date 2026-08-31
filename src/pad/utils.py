@@ -102,6 +102,32 @@ DEFAULT_IMAGENET_MEAN = (0.485, 0.456, 0.406)
 DEFAULT_IMAGENET_STD = (0.229, 0.224, 0.225)
 
 
+def load_env(path: Optional[str] = None, override: bool = False) -> str:
+    """Load a local `.env` into os.environ via python-dotenv (idempotent).
+
+    Searches from the current directory upward for `.env` by default; set
+    `PAD_ENV` to point at an explicit file. Also normalizes the legacy
+    `KAGGLE_API_KEY` alias to `KAGGLE_KEY` after loading.
+    """
+    import os
+    from pathlib import Path
+
+    if path is None:
+        path = os.environ.get("PAD_ENV", ".env")
+    try:
+        from dotenv import load_dotenv
+
+        if path == ".env":
+            load_dotenv(override=override)  # walks CWD parents
+        else:
+            load_dotenv(dotenv_path=Path(path), override=override)
+    except Exception:
+        pass  # dotenv is optional; env vars still work if exported manually
+    if not os.environ.get("KAGGLE_KEY") and os.environ.get("KAGGLE_API_KEY"):
+        os.environ["KAGGLE_KEY"] = os.environ["KAGGLE_API_KEY"]
+    return os.environ.get("KAGGLE_KEY", "")
+
+
 # ---------------------------------------------------------------------------
 # PAD metrics (ISO/IEC 30107-3 style). Scores are P(live); label 1 = live.
 # ---------------------------------------------------------------------------

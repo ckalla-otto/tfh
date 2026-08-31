@@ -472,6 +472,9 @@ def main(
     """
     import sys
 
+    from .utils import load_env
+
+    load_env()  # ensure KAGGLE_* creds are in os.environ (from .env via dotenv)
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     if from_file_list:
         _ = build_crawl_from_file_list(
