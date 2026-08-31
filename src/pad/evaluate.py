@@ -6,8 +6,6 @@ and per-class hard-sample reports (both CLI and library entry points).
 """
 from __future__ import annotations
 
-import argparse
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -180,26 +178,28 @@ def evaluate_split_and_report(
     return result
 
 
-def main(argv=None) -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--config", default="configs/exp_smoke.yaml")
-    ap.add_argument("--ckpt", required=True)
-    ap.add_argument("--split", default="test")
-    ap.add_argument("--out", default=None)
-    ap.add_argument("--device", default=None)
-    ap.add_argument("--no-tta", action="store_true")
-    args = ap.parse_args(argv)
+def main(
+    config: str = "configs/exp_smoke.yaml",
+    ckpt: str = None,
+    split: str = "test",
+    out: str = None,
+    device: str = None,
+    no_tta: bool = False,
+) -> None:
+    """Evaluate a trained checkpoint. Fire CLI: `python -m pad.evaluate [flags]`."""
+    if not ckpt:
+        raise ValueError("`--ckpt <path>` is required (path to a best.pt / last.pt).")
 
-    cfg = load_config(args.config)
-    dev = resolve_device(args.device)
-    out = Path(args.out or (Path(cfg["out_dir"]) / "eval"))
+    cfg = load_config(config)
+    dev = resolve_device(device)
+    eval_out = Path(out or (Path(cfg["out_dir"]) / "eval"))
 
     import pandas as pd
 
     from .data import build_loaders
 
     splits = {
-        args.split: pd.read_csv(Path(cfg["data"]["subsets_dir"]) / f"{args.split}.csv")
+        split: pd.read_csv(Path(cfg["data"]["subsets_dir"]) / f"{split}.csv")
     }
     depth_cache = cfg["depth"].get("cache_dir") if cfg["depth"].get("enabled", True) else None
     loaders, _ = build_loaders(cfg, splits, depth_cache=depth_cache, seed=0)
@@ -208,19 +208,21 @@ def main(argv=None) -> None:
 
     logger = get_logger()
     model = build_model(cfg)
-    ck = torch.load(args.ckpt, map_location="cpu")
+    ck = torch.load(ckpt, map_location="cpu")
     model.load_state_dict(
         {k: v for k, v in ck["model"].items() if k in model.state_dict()}
     )
     model.to(dev)
-    logger.info("Loaded checkpoint: %s", args.ckpt)
+    logger.info("Loaded checkpoint: %s", ckpt)
 
     result = evaluate_split_and_report(
-        model, loaders[args.split], cfg, dev, out, enable_tta=not args.no_tta
+        model, loaders[split], cfg, dev, eval_out, enable_tta=not no_tta
     )
-    save_json(result, str(out / "metrics.json"))
-    print(f"metrics.json written -> {out}")
+    save_json(result, str(eval_out / "metrics.json"))
+    print(f"metrics.json written -> {eval_out}")
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    import fire
+
+    fire.Fire(main)

@@ -14,10 +14,8 @@ When the depth cache has not been generated yet, set depth.enabled=false.
 """
 from __future__ import annotations
 
-import argparse
 import math
 import shutil
-import sys
 import time
 from pathlib import Path
 
@@ -143,15 +141,21 @@ def eval_val(model, val_loader, cfg, device):
     return res, guard
 
 
-def run_training(cfg: dict, args) -> None:
+def run_training(
+    cfg: dict,
+    run_name: str = "run",
+    rebuild_splits: bool = False,
+    epochs: int = None,
+    device: str = None,
+) -> None:
     set_seed(cfg["data"]["subset"]["seed"])
-    out_dir = Path(cfg["out_dir"]) / (args.run_name or "run")
+    out_dir = Path(cfg["out_dir"]) / run_name
     out_dir.mkdir(parents=True, exist_ok=True)
     logger = get_logger(log_file=str(out_dir / "train.log"))
-    device = resolve_device(args.device)
+    device = resolve_device(device)
     logger.info("Device: %s", device)
 
-    splits = ensure_splits(cfg, logger, rebuild=args.rebuild_splits)
+    splits = ensure_splits(cfg, logger, rebuild=rebuild_splits)
     depth_enabled = cfg["depth"].get("enabled", True)
     depth_cache = cfg["depth"].get("cache_dir") if depth_enabled else None
     loaders, samplers = build_loaders(
@@ -177,7 +181,7 @@ def run_training(cfg: dict, args) -> None:
         weight_decay=float(cfg["train"]["weight_decay"]),
     )
 
-    epochs = int(args.epochs or cfg["train"]["epochs"])
+    epochs = int(epochs or cfg["train"]["epochs"])
     warmup = int(cfg["train"].get("warmup_epochs", 2))
 
     def lr_lambda(ep: int) -> float:
@@ -298,21 +302,24 @@ def run_training(cfg: dict, args) -> None:
     logger.info("Final test result -> %s/test_metrics.json", out_dir)
 
 
-def main(argv=None) -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--config", default="configs/exp_smoke.yaml")
-    ap.add_argument("--run-name", default="run")
-    ap.add_argument("--rebuild-splits", action="store_true")
-    ap.add_argument("--epochs", type=int, default=None)
-    ap.add_argument("--device", default=None)
-    ap.add_argument("--crawl", default=None, help="override data.crawl_meta")
-    args = ap.parse_args(argv)
-    cfg = load_config(args.config)
-    if args.crawl:
-        cfg["data"]["crawl_meta"] = args.crawl
+def main(
+    config: str = "configs/exp_smoke.yaml",
+    run_name: str = "run",
+    rebuild_splits: bool = False,
+    epochs: int = None,
+    device: str = None,
+    crawl: str = None,
+) -> None:
+    """Train the PAD model. Fire CLI: `python -m pad.train [flags]`."""
+    cfg = load_config(config)
+    if crawl:
+        cfg["data"]["crawl_meta"] = crawl
     cfg["out_dir"] = str(Path(cfg["out_dir"]))
-    run_training(cfg, args)
+    run_training(cfg, run_name=run_name, rebuild_splits=rebuild_splits,
+                 epochs=epochs, device=device)
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    import fire
+
+    fire.Fire(main)

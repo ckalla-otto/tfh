@@ -31,15 +31,20 @@ bash scripts/download_data.sh
 #    -> set data.crawl_meta, then:
 
 # 3. (optional) generate pseudo-depth cache for the estimated classes
-python -m pad.depth_targets --config configs/exp_smoke.yaml --splits train val test
+python -m pad depth_targets --config configs/exp_smoke.yaml --splits "train val test"
 
 # 4. train (builds splits automatically on first run; add --rebuild-splits to redo)
-python -m pad.train --config configs/exp_smoke.yaml --run-name smoke
+python -m pad train --config configs/exp_smoke.yaml --run-name smoke
 
 # 5. evaluate a checkpoint
-python -m pad.evaluate --config configs/exp_smoke.yaml \
+python -m pad evaluate --config configs/exp_smoke.yaml \
     --ckpt results/smoke/best.pt --split test
 ```
+
+All CLIs use **Google Fire** (no argparse): flags are just keyword arguments
+(`--config`, `--run-name`, `--rebuild-splits`, `--no-tta`, ...). The
+module-level forms (`python -m pad.train`, `python -m pad.evaluate`,
+`python -m pad.depth_targets`) work identically.
 
 ## Repo layout
 

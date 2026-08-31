@@ -12,8 +12,6 @@ Usage:
 """
 from __future__ import annotations
 
-import argparse
-import gc
 import sys
 from pathlib import Path
 
@@ -100,35 +98,36 @@ def _process_row(row, estimator, cfg: dict, out_dir: Path) -> None:
     np.savez_compressed(out_file, depth=norm, mask=mask)
 
 
-def main(argv=None) -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--config", default="configs/exp_smoke.yaml")
-    ap.add_argument("--splits", default="train val test", help="space-separated splits")
-    ap.add_argument("--subset-dir", default=None, help="data/subsets dir override")
-    args = ap.parse_args(argv)
-
+def main(
+    config: str = "configs/exp_smoke.yaml",
+    splits: str = "train val test",
+    subset_dir: str = None,
+) -> None:
+    """Generate offline pseudo-depth targets. Fire CLI: `python -m pad.depth_targets`."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # src on path
     from pad.utils import load_config, get_logger
-    from pad.split import read_crawl, build_subset
+    from pad.split import ESTIMATED_CLASSES, IDX_TO_CLASS
 
-    cfg = load_config(args.config)
-    subsets_dir = Path(args.subset_dir or cfg["data"]["subsets_dir"])
+    cfg = load_config(config)
+    subsets_dir = Path(subset_dir or cfg["data"]["subsets_dir"])
     depth_cfg = cfg["depth"]
     cache_dir = Path(depth_cfg["cache_dir"])
     logger = get_logger(log_file=str(cache_dir / "_gen.log"))
 
     # ensure subset CSVs exist
-    for split in args.splits.split():
+    for split in splits.split():
         f = subsets_dir / f"{split}.csv"
         if not f.exists():
             raise FileNotFoundError(
-                f"{f} missing. Run the split step first (train.py --build-splits)."
+                f"{f} missing. Run the split step first (train.py --rebuild-splits)."
             )
 
-    logger.info("Building estimator %s (%s)", depth_cfg["estimator"], depth_cfg["dav2_model_id"])
+    logger.info(
+        "Building estimator %s (%s)", depth_cfg["estimator"], depth_cfg["dav2_model_id"]
+    )
     estimator = _build_estimator(depth_cfg["estimator"], depth_cfg["dav2_model_id"])
     total_done = 0
-    for split in args.splits.split():
+    for split in splits.split():
         out_dir = cache_dir / split
         out_dir.mkdir(parents=True, exist_ok=True)
         rows = pd.read_csv(subsets_dir / f"{split}.csv")
@@ -145,4 +144,6 @@ def main(argv=None) -> None:
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    import fire
+
+    fire.Fire(main)

@@ -16,5 +16,8 @@ transformers>=4.40
 # Kaggle download of the CelebA-Spoof mirror
 kaggle
 
+# CLI framework (replaces argparse)
+fire>=0.5
+
 # Test
 pytest
