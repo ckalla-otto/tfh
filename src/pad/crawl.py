@@ -36,6 +36,10 @@ _IMAGE_COL = "image"
 
 # Official Celeba-Spoof folder-name -> spoof-type index (0 = live).
 # The Data/ layout is: Data/<split>/<subject_id>/<spoof_class>/<img>.png
+# NOTE: several Kaggle mirrors collapse ALL attacks into a single `spoof`/
+# folder (no per-attack-type folders and no JSON annotations). For those,
+# `spoof` maps to 999 (unknown attack type, but definitely a spoof: is_live=0)
+# so the images are kept, NOT dropped.
 _SPOOF_FOLDER_TO_IDX = {
     "live": 0,
     "photo": 1,
@@ -53,6 +57,9 @@ _SPOOF_FOLDER_TO_IDX = {
     "3d": 9,
     "3d_mask": 9,
     "3dprint": 9,
+    # mirrors that only distinguish live/spoof:
+    "spoof": 999,
+    "fake": 999,
 }
 
 
@@ -277,8 +284,18 @@ def _log_file_list_crawl(df: pd.DataFrame) -> None:
     counts = df["spoof_type"].value_counts().to_dict()
     rows = {IDX_TO_CLASS[i]: counts.get(i, 0) for i in range(len(IDX_TO_CLASS))}
     total = sum(rows.values()) or 1
+    n_unknown = int(counts.get(999, 0))
     print(f"  crawled {len(df)} images from file list")
     print("  per-class:", ", ".join(f"{k}={v} ({100*v/total:.1f}%)" for k, v in rows.items()))
+    if n_unknown:
+        print(
+            f"  WARNING: {n_unknown} images ({100*n_unknown/len(df):.0f}%) have "
+            "UNKNOWN attack type (folder `spoof/`). This mirror only distinguishes "
+            "live vs spoof — the 10-way spoof type is NOT available from the file "
+            "listing. Per-attack-type stratification/eval is impossible with it.\n"
+            "  To get the true spoof_type, use a mirror that ships the official "
+            "per-image annotations (JSON/label files), or accept binary live/spoof."
+        )
 
 
 def build_crawl(
