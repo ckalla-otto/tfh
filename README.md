@@ -154,11 +154,13 @@ tfh/
 uv run python -m pad predict --image_path path/to/img.jpg \
     --ckpt results/run/best.pt --config configs/base.yaml
 
-# optional face bbox "x1 y1 x2 y2" (the model was trained on extended face crops):
+# optional face bbox "x1 y1 x2 y2" (the model was trained on extended face crops);
+# without it, InsightFace (SCRFD) auto-detects the face:
 uv run python -m pad predict --image_path img.jpg --ckpt best.pt --bbox "10 20 260 300"
+uv run python -m pad predict --image_path img.jpg --ckpt best.pt       # auto face detection
 
-# disable flip-square TTA, pick device:
-uv run python -m pad predict ... --no-tta --device cpu
+# disable flip TTA, pick device, disable auto-detection:
+uv run python -m pad predict ... --no-tta --device cpu --auto-face false
 ```
 
 Output:
@@ -170,8 +172,10 @@ Conventions:
 - `live probability` = sigmoid of the binary head (with optional horizontal-flip
   TTA, matching eval), `decision` = thresholded at 0.5.
 - `spoof_type` = argmax of the 10-way head (0=live, 1..9=attacks).
-- Without `--bbox` the full image is center-cropped; for best accuracy pass a
-  face bounding box (or pre-crop the face), since training used extended crops.
+- Face box used for the extended crop: explicit `--bbox` if given, else
+  **InsightFace (SCRFD, `buffalo_l`)** auto-detection; if nothing is found the
+  full image is center-cropped. (The model was trained on extended face crops,
+  so a bbox/auto-face improves accuracy.)
 
 ## Dev notes
 

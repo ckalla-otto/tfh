@@ -8,7 +8,8 @@ set -euo pipefail
 echo "==> Installing system packages"
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
-  build-essential python3-venv python3-pip curl git unzip
+  build-essential python3-venv python3-pip curl git unzip \
+  libgl1 libglib2.0-0   # needed by opencv-gui wheels on headless VMs
 
 echo "==> NVIDIA driver + CUDA toolkit (12.x via pip wheels is enough for torch)"
 # The T4 is fully supported by the open nvidia-driver-535+; install driver:

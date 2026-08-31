@@ -17,15 +17,12 @@ dependencies = [
     "PyYAML",
     "tqdm",
     "matplotlib",
-    "opencv-python-headless",
+    "opencv-python>=5.0.0.93",
     "transformers>=4.40",
     "kaggle",
     "fire>=0.5",
+    "insightface>=1.0.1",
 ]
-
-[project.optional-dependencies]
-# Extra packages for development / running tests
-dev = ["pytest"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -37,3 +34,8 @@ testpaths = ["tests"]
 # PyTorch CUDA wheels available on the T4 VM via a custom index; local/macOS CPU
 # installs use PyPI. See scripts/setup_gpu_vm.sh for the CUDA index workflow.
 index-url = "https://pypi.org/simple"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+]

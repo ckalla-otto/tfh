@@ -85,11 +85,14 @@ def predict_image(
     bbox: str = None,
     no_tta: bool = False,
     device: str = None,
+    auto_face: bool = True,
 ) -> dict:
     """Load the model + checkpoint and predict a single image.
 
+    bbox:        optional "x1 y1 x2 y2" face box. If omitted and auto_face=True,
+                 InsightFace detects the face automatically.
     Returns dict with: live_prob, spoof_prob, spoof_type, spoof_type_name,
-    decision ("live"/"spoof"), bbox, margin, img_size.
+    decision ("live"/"spoof"), bbox, margin, img_size, auto_face.
     """
     logger = get_logger()
     cfg = load_config(config)
@@ -109,6 +112,14 @@ def predict_image(
     size = int(cfg["data"]["crop"]["size"])
     margin = float(cfg["data"]["crop"].get("margin_factor", 1.3))
     n_bbox = tuple(map(float, bbox.split())) if bbox else None
+    used_auto_face = False
+    if n_bbox is None and auto_face:
+        from .face import detect_face_bbox
+
+        n_bbox = detect_face_bbox(img)
+        used_auto_face = n_bbox is not None
+        if n_bbox is None:
+            logger.warning("no face detected by InsightFace; falling back to full-image center crop")
     crop = _prepare_crop(img, n_bbox, size, margin)
     tta_cfg = cfg.get("eval", {}).get("tta", {})
     use_flip = (not no_tta) and bool(tta_cfg.get("enabled", True)) and "flip" in tta_cfg.get(
@@ -131,6 +142,7 @@ def predict_image(
         "margin": margin,
         "img_size": (crop.size[0], crop.size[1]),
         "tta_flip": use_flip,
+        "auto_face": used_auto_face,
     }
     logger.info(
         "P(live)=%.4f P(spoof)=%.4f | type=%s | decision=%s",
@@ -146,11 +158,12 @@ def main(
     bbox: str = None,
     no_tta: bool = False,
     device: str = None,
+    auto_face: bool = True,
 ) -> None:
     """Predict a single image from the CLI (Fire). Prints live/spoof + probs."""
     res = predict_image(
         image_path=image_path, ckpt=ckpt, config=config,
-        bbox=bbox, no_tta=no_tta, device=device,
+        bbox=bbox, no_tta=no_tta, device=device, auto_face=auto_face,
     )
     print(f"image            : {image_path}")
     print(f"live probability : {res['live_prob']:.4f}")
@@ -159,6 +172,9 @@ def main(
     print(f"spoof type       : {st_name} (idx {res['spoof_type']})" if res["spoof_type"] is not None
           else "spoof type       : n/a")
     print(f"decision         : {res['decision']}")
+    if res["bbox"] is not None:
+        kind = "auto-detected" if res["auto_face"] else "given"
+        print(f"face bbox [{kind}]  : {res['bbox']}")
 
 
 if __name__ == "__main__":
