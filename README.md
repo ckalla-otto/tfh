@@ -24,11 +24,11 @@ uv venv --python 3.13
 uv sync --extra dev
 
 # 1. download the mirror (env-var creds only)
-export KAGGLE_USERNAME=... KAGGLE_KEY=... PAD_DATASET_SLUG=...
+. .env   # exports KAGGLE_USERNAME/KAGGLE_KEY (or KAGGLE_API_KEY) + PAD_DATASET_SLUG
 bash scripts/download_data.sh
 
-# 2. build the crawl manifest CSV (or reuse the Kaggle mirror's own csv)
-#    -> set data.crawl_meta, then:
+# 2. crawl the mirror -> normalized manifest (data/crawl.csv)
+uv run python -m pad make_crawl --root data/raw/celeba-spoof --out data/crawl.csv
 
 # 3. (optional) generate pseudo-depth cache for the estimated classes
 uv run python -m pad depth_targets --config configs/exp_smoke.yaml --splits "train val test"
@@ -48,6 +48,33 @@ module-level forms (`uv run python -m pad.train`, `python -m pad.evaluate`,
 
 When running from inside the activated venv, drop the `uv run` prefix
 (`python -m pad train ...`).
+
+## Crawling the dataset (a.k.a. "crawl the DB")
+
+1. **Credentials** — copy `.env.example` to `.env` and fill in `KAGGLE_USERNAME` +
+   `KAGGLE_KEY` (or the legacy `KAGGLE_API_KEY`). Never commit `.env` (it's
+   gitignored).
+2. **Find the mirror** — CelebA-Spoof exists as several Kaggle datasets. Find the
+   slug you want:
+   ```bash
+   uv run kaggle datasets list -s "celeba spoof"
+   ```
+   (or browse `kaggle.com/datasets?search=celeba-spoof`). Set
+   `PAD_DATASET_SLUG=owner/celeba-spoof-mirror` in `.env`.
+3. **Download** — `bash scripts/download_data.sh` pulls the archive into
+   `data/raw/` and unzips it (mirrors are tens of GB — make sure you have disk).
+4. **Crawl** — `make_crawl` walks every image under the mirror root and joins the
+   labels from either the mirror's own `train.csv`/`test.csv` tables or the
+   official per-image JSONs:
+   ```bash
+   uv run python -m pad make_crawl --root data/raw/celeba-spoof --out data/crawl.csv
+   ```
+   It prints a per-spoof-type histogram and skips (and counts) any image with no
+   metadata — a complete mirror should show **0 skipped**. The produced
+   `crawl.csv` is the manifest consumed by the split/train step (`data.crawl_meta`).
+5. **Sanity** — `uv run pytest tests/` checks the splitter invariants
+   (equal-per-type, subject-disjoint), and the make_crawl → split → train chain is
+   exercised in `tests/e2e_smoke.py`.
 
 ## Repo layout
 

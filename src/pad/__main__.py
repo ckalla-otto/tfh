@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import fire
 
-from . import depth_targets, evaluate, train
+from . import crawl, depth_targets, evaluate, train
 
 if __name__ == "__main__":
     fire.Fire(
@@ -20,5 +20,6 @@ if __name__ == "__main__":
             "train": train.main,
             "evaluate": evaluate.main,
             "depth_targets": depth_targets.main,
+            "make_crawl": crawl.main,
         }
     )
