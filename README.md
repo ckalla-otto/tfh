@@ -58,48 +58,53 @@ work identically.
 When running from inside the activated venv, drop the `uv run` prefix
 (`python -m pad train ...`).
 
-## Crawling the dataset (and downloading only the subset)
+## Crawling the dataset (and downloading only the subset, via the Kaggle API)
 
-1. **Credentials** — copy `.env.example` to `.env` and fill in `KAGGLE_USERNAME` +
-   `KAGGLE_KEY` (or the legacy `KAGGLE_API_KEY`) and `PAD_DATASET_SLUG`. `.env`
-   is gitignored.
-2. **Find the mirror** — browse `kaggle.com/datasets?search=celeba-spoof` or list:
-   ```bash
-   uv run kaggle datasets list -s "celeba spoof"
-   ```
-3. **Metadata-only download** — pull the small label tables (train/test/val CSV or
-   `metadata.csv`) — **not the images**:
-   ```bash
-   uv run kaggle datasets download -d "$PAD_DATASET_SLUG" -f train.csv -p data/raw/celeba-spoof
-   ```
-4. **Crawl the metadata** → `data/crawl.csv` (per-image labels incl. bbox + a
-   `rel_path` used for targeted downloads):
-   ```bash
-   uv run python -m pad make_crawl --root data/raw/celeba-spoof --out data/crawl.csv --from-metadata true
-   ```
-5. **Sample the subset** (equal per spoof-type, identity-exclusive split, with a
-   balance report that FAILS loudly on any invariant violation):
-   ```bash
-   uv run python -m pad make_splits --config configs/base.yaml
-   ```
-6. **Download only the sampled images** (parallel `kaggle datasets download -f`,
-   resume-safe — already-present files are skipped). On success it **re-points the
-   subset CSVs' `image_path` to `data/subset/`** so training reads the downloaded
-   files:
-   ```bash
-   uv run python -m pad download_subset --subset-dir data/subsets --out-dir data/subset --slug "$PAD_DATASET_SLUG"
-   # optional dry check that every sampled path exists in the mirror:
-   uv run python -m pad download_subset ... --check-only
-   ```
-   > Note: after `download_subset`, don't re-run `make_splits` (it would re-point
-   > `image_path` back to the empty mirror root). If you do, re-run `download_subset`
-   > once more to re-link.
+This flow uses **only the Kaggle API** — no full-archive download. Verified
+end-to-end against the official-layout mirror
+`attentionlayer241/celeba-spoof-for-face-antispoofing`.
 
-**Caveat:** per-image downloads require the mirror to expose individual files
-(`kaggle datasets files -d <slug>` lists them). If a mirror packs everything
-into one archive, per-image selection is not supported by the Kaggle API — you'd
-fall back to downloading the whole archive once (`bash scripts/download_data.sh`)
-or pick a mirror that ships per-file images.
+```bash
+# 1. credentials (gitignored)
+cp .env.example .env   # = KAGGLE_USERNAME, KAGGLE_KEY, PAD_DATASET_SLUG
+. .env
+
+# 2. dump the mirror's file listing (paths only — cheap, paginated)
+uv run python -m pad download_subset --slug "$PAD_DATASET_SLUG" \
+    --fetch-files --files-out data/mirror_files.txt --page-size 1000
+
+# 3. build the manifest from that listing (no images on disk yet)
+uv run python -m pad make_crawl --from-file-list data/mirror_files.txt \
+    --out data/crawl.csv
+
+# 4. stratified, identity-exclusive subset (per spoof-type equal) + balance report
+uv run python -m pad make_splits --config configs/base.yaml
+cat data/subsets/balance_report.md     # verify RESULT: PASS
+
+# 5. download exactly those images + their _BB.txt bboxes (official layout),
+#    then re-links subset CSVs and patches x1..y2 in them
+uv run python -m pad download_subset --subset-dir data/subsets \
+    --out-dir data/subset --slug "$PAD_DATASET_SLUG" --official --workers 8
+
+# 6. (optional) dry check that every sampled path exists in the mirror
+uv run python -m pad download_subset ... --check-only
+```
+
+Notes:
+- `--fetch-files` pages through `kaggle datasets files` (paths only — a full
+  600k-file mirror costs a few MB of text and a few minutes).
+- The official-layout mirror stores labels in the **folder structure**
+  (`Data/<split>/<subject>/<class>/<img>.png`) and bboxes in sibling
+  `<img>_BB.txt` (`x y w h [conf]`) — `make_crawl --from-file-list` parses the
+  paths, and `download_subset --official` fetches + patches the bboxes.
+- After `download_subset`, don't re-run `make_splits` (it would re-point
+  `image_path` back to the empty mirror root); re-run `download_subset` to
+  re-link instead.
+
+**Alternative (whole-archive) flow:** if a mirror packs everything into one
+zip (no per-file access), use `bash scripts/download_data.sh` to download +
+unzip once, then `make_crawl --root data/raw/celeba-spoof --layout official`
++ `make_splits` from the on-disk mirror.
 
 ## Repo layout
 

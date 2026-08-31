@@ -128,10 +128,13 @@ def _lookup_json(img: Path) -> Optional[dict]:
 
 
 def _lookup_bb(img: Path) -> Optional[tuple]:
-    """Read the sibling `<img>_BB.txt` bbox (x1 y1 x2 y2 [conf]) if present."""
+    """Read the sibling `<img>_BB.txt` bbox if present.
+
+    Format is `x y w h [conf]` (top-left + width/height) per CelebA-Spoof, so we
+    convert to absolute (x1, y1, x2, y2).
+    """
     bb_file = img.with_name(f"{img.stem}_BB.txt")
     if not bb_file.exists():
-        # some mirrors nest under a .txt at a shallower path
         alt = img.parent / f"{img.stem}_BB.txt"
         bb_file = alt if alt.exists() else bb_file
     if not bb_file.exists():
@@ -141,9 +144,49 @@ def _lookup_bb(img: Path) -> Optional[tuple]:
             toks = f.read().strip().split()
         if len(toks) < 4:
             return None
-        return tuple(float(v) for v in toks[:4])
+        x, y, w, h = (float(v) for v in toks[:4])
+        return (x, y, x + w, y + h)
     except Exception:
         return None
+
+
+def _parse_official_rel(rel: str) -> Optional[dict]:
+    """Parse an official-layout relative path (path- or file-list driven).
+
+    Handles `Data/<split>/<subject>/<spoofclass>/<img>.png` both when the
+    mirror root is `Data` itself and when an archive prefix precedes it
+    (e.g. `CelebA_Spoof_/CelebA_Spoof/Data/test/10001/live/496120.png`).
+    Ignores `_BB.txt` companions. Returns None for non-image/unparseable rels.
+    """
+    ext = os.path.splitext(rel)[1].lower()
+    if ext not in IMAGE_EXTS:
+        return None
+    parts = rel.split("/")
+    base = None
+    for i, p in enumerate(parts):
+        if p.lower() == "data":
+            base = i + 1
+            break
+    if base is None:
+        # no explicit Data/ segment: split is the first component
+        if len(parts) < 4:
+            return None
+        split, subject, spoof_cls = parts[0], parts[1], parts[2]
+    else:
+        # need split/<subject>/<class> after Data/ and an image after that
+        if len(parts) < base + 4:
+            return None
+        split = parts[base]
+        subject = parts[base + 1]
+        spoof_cls = parts[base + 2]
+    idx = _SPOOF_FOLDER_TO_IDX.get(spoof_cls.lower())
+    return {
+        "rel": rel,
+        "split": split,
+        "subject": subject,
+        "spoof_cls": spoof_cls,
+        "spoof_type": idx,
+    }
 
 
 def _official_walk(root: Path, include_unknown: bool):
@@ -153,19 +196,12 @@ def _official_walk(root: Path, include_unknown: bool):
     """
     for dirpath, _dirnames, filenames in os.walk(root):
         for fn in sorted(filenames):
-            ext = os.path.splitext(fn)[1].lower()
-            if ext not in IMAGE_EXTS:
-                continue
             img = Path(dirpath) / fn
             rel = os.path.relpath(img, root).replace("\\", "/")
-            parts = rel.split("/")
-            # expect Data/<split>/<subject>/<spoofclass>/<img>
-            if len(parts) < 4:
+            parsed = _parse_official_rel(rel)
+            if parsed is None:
                 continue
-            split = parts[1] if parts[0].lower() == "data" else parts[0]
-            subject = parts[2] if parts[0].lower() == "data" else parts[1]
-            spoof_cls = parts[3] if parts[0].lower() == "data" else parts[2]
-            idx = _SPOOF_FOLDER_TO_IDX.get(spoof_cls.lower(), None)
+            idx = parsed["spoof_type"]
             if idx is None and not include_unknown:
                 continue
             bb = _lookup_bb(img)
@@ -178,9 +214,71 @@ def _official_walk(root: Path, include_unknown: bool):
                 "environment": 0, "illumination": 0,
             }
             # preserve the split + subject so the manifest is usable downstream
-            d["_split"] = split
-            d["_subject"] = subject
+            d["_split"] = parsed["split"]
+            d["_subject"] = parsed["subject"]
             yield rel, d
+
+
+def build_crawl_from_file_list(
+    file_list: str,
+    out_csv: Optional[str] = None,
+    include_unknown: bool = False,
+) -> pd.DataFrame:
+    """Build the manifest from a `kaggle datasets files` listing (paths only).
+
+    Each line is a relative path in the official layout. No images or metadata
+    need to be on disk — bboxes are filled in later (download_subset patches
+    them from the per-image `_BB.txt` companions).
+    """
+    lines = [ln.strip() for ln in open(file_list) if ln.strip()]
+    records = []
+    for ln in lines:
+        # strip size/date columns (the CLI table) if present
+        rel = ln.split()[0]
+        parsed = _parse_official_rel(rel)
+        if parsed is None:
+            continue
+        idx = parsed["spoof_type"]
+        if idx is None and not include_unknown:
+            continue
+        records.append(
+            {
+                "image_id": _sanitize_id(os.path.splitext(rel)[0]),
+                "image_path": "",  # not on disk yet; relink later
+                "rel_path": rel,
+                "subject_id": parsed["subject"],
+                "split": parsed["split"],
+                "spoof_type": idx if idx is not None else 999,
+                "is_live": int(idx == 0) if idx is not None else 0,
+                "environment": 0,
+                "illumination": 0,
+                "x1": 0.0, "y1": 0.0, "x2": 0.0, "y2": 0.0,
+            }
+        )
+    if not records:
+        raise RuntimeError(
+            f"no image paths parsed from file list; expected official layout "
+            f"(Data/<split>/<subject>/<class>/<img>) — got {file_list}"
+        )
+    df = pd.DataFrame(records)
+    df = df.drop_duplicates(subset=["image_id"])
+    df = df.sort_values("image_id").reset_index(drop=True)
+    _ensure_columns(df)
+    if out_csv:
+        Path(out_csv).parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(out_csv, index=False)
+    _log_file_list_crawl(df)
+    return df
+
+
+def _log_file_list_crawl(df: pd.DataFrame) -> None:
+    from .split import IDX_TO_CLASS
+
+    counts = df["spoof_type"].value_counts().to_dict()
+    rows = {IDX_TO_CLASS[i]: counts.get(i, 0) for i in range(len(IDX_TO_CLASS))}
+    total = sum(rows.values()) or 1
+    print(f"  crawled {len(df)} images from file list")
+    print("  per-class:", ", ".join(f"{k}={v} ({100*v/total:.1f}%)" for k, v in rows.items()))
 
 
 def build_crawl(
@@ -362,20 +460,28 @@ def main(
     include_unknown: bool = False,
     from_metadata: bool = False,
     layout: str = "auto",
+    from_file_list: str = None,
 ) -> None:
     """Crawl the mirror and write the normalized manifest CSV (Fire CLI).
 
     `--layout official` walks the official Data/<split>/<subject>/<class>/ layout
     (uses per-image `<img>_BB.txt` bboxes and the folder name for the spoof type).
     `--from-metadata true` builds the manifest only from root-level CSVs.
+    `--from-file-list <file>` builds the manifest from a `kaggle datasets files`
+    listing (no images on disk) — bboxes get patched later by download_subset.
     """
     import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    _ = build_crawl(
-        root, out_csv=out, include_unknown=include_unknown,
-        from_metadata=from_metadata, layout=layout,
-    )
+    if from_file_list:
+        _ = build_crawl_from_file_list(
+            from_file_list, out_csv=out, include_unknown=include_unknown
+        )
+    else:
+        _ = build_crawl(
+            root, out_csv=out, include_unknown=include_unknown,
+            from_metadata=from_metadata, layout=layout,
+        )
     print(f"crawl manifest written -> {out}")
 
 

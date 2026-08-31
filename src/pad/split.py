@@ -91,7 +91,7 @@ def _ensure_columns(df: pd.DataFrame) -> None:
             f"Available: {list(df.columns)}. "
             "Adjust column names in _COLUMN_SYNONYMS for your mirror."
         )
-    if df["image_path"].duplicated().any():
+    if df["image_path"].astype(str).replace("", pd.NA).dropna().duplicated().any():
         raise ValueError("Duplicate image_path entries in crawl manifest.")
     if df["subject_id"].isna().any():
         raise ValueError("NaN values in subject_id column.")
