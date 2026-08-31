@@ -75,9 +75,16 @@ cp .env.example .env   # = KAGGLE_USERNAME, KAGGLE_KEY, PAD_DATASET_SLUG
 #    left off instead of restarting. Just re-run this same command to resume.
 uv run python -m pad download_subset --fetch-files --files-out data/mirror_files.txt
 
-# 3. build the manifest from that listing (no images on disk yet)
+# 3. build the manifest from that listing (no images on disk yet).
+#    IMPORTANT: the mirror's folder structure only distinguishes `live/` vs
+#    `spoof/`. To recover the TRUE 10-way attack type, download the official
+#    annotation table and join it:
+#      kaggle datasets download -d tungnguyentien/celeba-spoof-crop-1-9 \
+#          -f 'CelebA_Spoof_crop_1_9/data_1.0_128/label.csv' -p data/labels
+#    (label.csv is indexed by `split/subject/class/<img>`; column 40 = spoof
+#    type 0-9, 41 = illumination, 42 = environment.)
 uv run python -m pad make_crawl --from-file-list data/mirror_files.txt \
-    --out data/crawl.csv
+    --out data/crawl.csv --labels data/labels/label.csv
 
 # 4. stratified, identity-exclusive subset (per spoof-type equal) + balance report
 uv run python -m pad make_splits --config configs/base.yaml
