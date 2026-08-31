@@ -125,6 +125,11 @@ def load_env(path: Optional[str] = None, override: bool = False) -> str:
         pass  # dotenv is optional; env vars still work if exported manually
     if not os.environ.get("KAGGLE_KEY") and os.environ.get("KAGGLE_API_KEY"):
         os.environ["KAGGLE_KEY"] = os.environ["KAGGLE_API_KEY"]
+
+    # guard against stray backticks/quotes from messy .env copy-paste
+    for var in ("PAD_DATASET_SLUG", "KAGGLE_USERNAME", "KAGGLE_KEY", "KAGGLE_API_KEY"):
+        if os.environ.get(var):
+            os.environ[var] = str(os.environ[var]).strip().strip("`").strip()
     return os.environ.get("KAGGLE_KEY", "")
 
 

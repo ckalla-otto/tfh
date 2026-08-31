@@ -253,9 +253,12 @@ def main(
     subset_dir = Path(subset_dir)
     out_dir = Path(out_dir)
 
+    # `--slug` wins; otherwise fall back to PAD_DATASET_SLUG from .env (dotenv)
+    slug = slug or os.environ.get("PAD_DATASET_SLUG")
     if not slug:
         raise SystemExit(
-            "--slug <owner>/<dataset> is required (from .env: PAD_DATASET_SLUG)"
+            "--slug <owner>/<dataset> is required; either pass it or set "
+            "PAD_DATASET_SLUG in .env (loaded automatically via python-dotenv)."
         )
 
     # --- mode 1: just dump the mirror's file listing (paths only) -----------
