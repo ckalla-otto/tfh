@@ -44,6 +44,10 @@ uv run python -m pad depth_targets --config configs/base.yaml --splits "train va
 # 6. train + evaluate
 uv run python -m pad train --config configs/base.yaml --run-name smoke
 uv run python -m pad evaluate --config configs/base.yaml --ckpt results/smoke/best.pt --split test
+
+# 7. predict a single image with a probability
+uv run python -m pad predict --image_path path/to/img.jpg --ckpt results/smoke/best.pt
+uv run python -m pad predict --image_path img.jpg --ckpt best.pt --bbox "10 20 260 300"
 ```
 
 All CLIs use **Google Fire** (no argparse): flags are just keyword arguments
@@ -143,6 +147,31 @@ tfh/
 | 6 | depth strategy {per-type, all-flat, all-estimated} | 3D-mask handling |
 | 7 | subset 5k/15k/40k | data efficiency |
 | 8 | leave-one-attack-out | generalization |
+
+## Prediction (single image)
+
+```bash
+uv run python -m pad predict --image_path path/to/img.jpg \
+    --ckpt results/run/best.pt --config configs/base.yaml
+
+# optional face bbox "x1 y1 x2 y2" (the model was trained on extended face crops):
+uv run python -m pad predict --image_path img.jpg --ckpt best.pt --bbox "10 20 260 300"
+
+# disable flip-square TTA, pick device:
+uv run python -m pad predict ... --no-tta --device cpu
+```
+
+Output:
+```
+P(live)=0.1396 P(spoof)=0.8604  type=region_mask (idx 6)  decision=spoof
+```
+
+Conventions:
+- `live probability` = sigmoid of the binary head (with optional horizontal-flip
+  TTA, matching eval), `decision` = thresholded at 0.5.
+- `spoof_type` = argmax of the 10-way head (0=live, 1..9=attacks).
+- Without `--bbox` the full image is center-cropped; for best accuracy pass a
+  face bounding box (or pre-crop the face), since training used extended crops.
 
 ## Dev notes
 

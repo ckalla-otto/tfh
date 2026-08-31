@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import fire
 
-from . import crawl, depth_targets, download, evaluate, train
+from . import crawl, depth_targets, download, evaluate, predict, train
 
 if __name__ == "__main__":
     fire.Fire(
@@ -23,5 +23,6 @@ if __name__ == "__main__":
             "make_crawl": crawl.main,
             "make_splits": train.make_splits,
             "download_subset": download.main,
+            "predict": predict.main,
         }
     )
