@@ -38,18 +38,19 @@ def _kaggle_cmd() -> List[str]:
     return [str(exe)] if exe.exists() else ["kaggle"]
 
 
-def fetch_dataset_files(
+def _iter_file_pages(
     slug: str,
-    page_size: int = 1000,
+    page_size: int = 200,
+    start_token: Optional[str] = None,
     max_pages: Optional[int] = None,
-) -> List[Tuple[str, str]]:
-    """Page through `kaggle datasets files` and return [(name, size), ...].
+):
+    """Yield (items, next_token) pages of `kaggle datasets files`.
 
-    Pages until no `Next Page Token` (or `max_pages` reached). Only the first
-    whitespace token per data row is kept (the file path).
+    `start_token` lets a re-run continue where the previous run stopped (the
+    Kaggle API is token-based and sequential, so this is how resume works).
+    The token is advanced after every page so pages 2..n don't repeat page 1.
     """
-    token = None
-    items: List[Tuple[str, str]] = []
+    token = start_token
     pages = 0
     while max_pages is None or pages < max_pages:
         cmd = _kaggle_cmd() + ["datasets", "files", "-d", slug, "--page-size", str(page_size)]
@@ -58,7 +59,8 @@ def fetch_dataset_files(
         out = subprocess.run(cmd, check=True, capture_output=True, text=True)
         text = out.stdout
         m = _TOKEN_RE.search(text)
-        token = m.group(1) if m else None
+        next_token = m.group(1) if m else None
+        items = []
         for ln in text.splitlines():
             ln = ln.strip()
             if not ln or ln.startswith(("name", "----", "Next Page Token")):
@@ -66,10 +68,92 @@ def fetch_dataset_files(
             toks = ln.split()
             items.append((toks[0], toks[1] if len(toks) > 1 else ""))
         pages += 1
-        if not token:
+        yield items, next_token
+        token = next_token  # <-- advance for the next page
+        if not next_token:
             break
-        print(f"  ... listed {len(items)} files (page {pages})", flush=True)
+
+
+def fetch_dataset_files(
+    slug: str,
+    page_size: int = 1000,
+    max_pages: Optional[int] = None,
+) -> List[Tuple[str, str]]:
+    """Page through `kaggle datasets files` and return [(name, size), ...].
+
+    Pages until no `Next Page Token` (or `max_pages` reached). The Kaggle API
+    caps page size at 200, so 1000/500 fall back to ~200.
+    """
+    items: List[Tuple[str, str]] = []
+    for batch, _tok in _iter_file_pages(slug, page_size=page_size, max_pages=max_pages):
+        items.extend(batch)
+        print(f"  ... listed {len(items)} files", flush=True)
     return items
+
+
+_TOKEN_STATE_FILE = ".listing_token"
+
+
+def _load_resume_token(files_out: Path) -> Optional[str]:
+    """Read the last stored page token (and ensure the partial file is kept)."""
+    state = files_out.parent / (files_out.name + _TOKEN_STATE_FILE)
+    if state.exists():
+        return state.read_text().strip() or None
+    return None
+
+
+def _save_resume_token(files_out: Path, token: Optional[str]) -> None:
+    state = files_out.parent / (files_out.name + _TOKEN_STATE_FILE)
+    if token:
+        state.write_text(token)
+    else:
+        state.unlink(missing_ok=True)
+
+
+def fetch_dataset_files_resumable(
+    slug: str,
+    files_out: str,
+    page_size: int = 200,
+    max_pages: Optional[int] = None,
+    resume: bool = True,
+) -> int:
+    """Page `kaggle datasets files`, writing each page incrementally.
+
+    Writes every page to `files_out` immediately (both partial + resume-safe)
+    and keeps the last page token in `files_out.listing_token`. Re-running with
+    `resume=True` continues from that token instead of restarting.
+
+    Returns the total number of entries written (including previously-fetched).
+    """
+    out = Path(files_out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    token = _load_resume_token(out) if resume else None
+    seen = set()
+    if out.exists():  # index already-written rows for dedup
+        seen = {ln.split("\t")[0] for ln in out.read_text().splitlines() if ln.strip()}
+    mode = "a" if (resume and out.exists()) else "w"
+    total = len(seen)
+    with open(out, mode) as f:
+        for items, nxt in _iter_file_pages(
+            slug, page_size=page_size, start_token=token,
+            max_pages=max_pages if max_pages else None,
+        ):
+            added = 0
+            for name, size in items:
+                if name in seen:
+                    continue
+                f.write(f"{name}\t{size}\n")
+                seen.add(name)
+                added += 1
+            total += added
+            f.flush()
+            _save_resume_token(out, nxt)
+            print(f"  ... {total} files so far (page added {len(items)}, new {added})", flush=True)
+            if not nxt:
+                _save_resume_token(out, None)  # naturally complete -> no resume needed
+                return total
+    # ran out of max_pages (not a natural end): keep token so a re-run resumes
+    return total
 
 
 def _place_downloaded(out_dir: Path, rel: str) -> bool:
@@ -264,13 +348,10 @@ def main(
     # --- mode 1: just dump the mirror's file listing (paths only) -----------
     if fetch_files:
         print(f"listing files of {slug} (page-size {page_size}) ...")
-        items = fetch_dataset_files(slug, page_size=page_size, max_pages=max_pages)
-        files_out = Path(files_out)
-        files_out.parent.mkdir(parents=True, exist_ok=True)
-        with open(files_out, "w") as f:
-            for name, size in items:
-                f.write(f"{name}\t{size}\n")
-        print(f"listed {len(items)} files -> {files_out}")
+        n = fetch_dataset_files_resumable(
+            slug, files_out, page_size=page_size, max_pages=max_pages, resume=True
+        )
+        print(f"  {n} file entries -> {files_out}")
         print("next: make_crawl --from-file-list --out data/crawl.csv")
         return
 

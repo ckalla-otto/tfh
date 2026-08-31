@@ -66,12 +66,14 @@ end-to-end against the official-layout mirror
 
 ```bash
 # 1. credentials (gitignored). The Python CLIs auto-load this via python-dotenv,
-#    so no `source` is needed:
+#    so no `source` and no `$PAD_DATASET_SLUG` shell expansion is needed:
 cp .env.example .env   # = KAGGLE_USERNAME, KAGGLE_KEY, PAD_DATASET_SLUG
 
 # 2. dump the mirror's file listing (paths only — cheap, paginated)
-uv run python -m pad download_subset --slug "$PAD_DATASET_SLUG" \
-    --fetch-files --files-out data/mirror_files.txt --page-size 1000
+#    Writes each page to data/mirror_files.txt immediately and keeps a resume
+#    token (data/mirror_files.txt.listing_token); re-running continues where it
+#    left off instead of restarting. Just re-run this same command to resume.
+uv run python -m pad download_subset --fetch-files --files-out data/mirror_files.txt
 
 # 3. build the manifest from that listing (no images on disk yet)
 uv run python -m pad make_crawl --from-file-list data/mirror_files.txt \
@@ -84,15 +86,15 @@ cat data/subsets/balance_report.md     # verify RESULT: PASS
 # 5. download exactly those images + their _BB.txt bboxes (official layout),
 #    then re-links subset CSVs and patches x1..y2 in them
 uv run python -m pad download_subset --subset-dir data/subsets \
-    --out-dir data/subset --slug "$PAD_DATASET_SLUG" --official --workers 8
+    --out-dir data/subset --official --workers 8
 
 # 6. (optional) dry check that every sampled path exists in the mirror
 uv run python -m pad download_subset ... --check-only
 ```
 
-Notes:
-- `--fetch-files` pages through `kaggle datasets files` (paths only — a full
-  600k-file mirror costs a few MB of text and a few minutes).
+> Tip: the full listing is ~1.25M entries (about 45 min at the API's hard 200/page
+> cap). It's **resume-safe** — run it in the background, and if it's interrupted
+> just re-run the same `--fetch-files` command; it continues from the saved token.
 - The official-layout mirror stores labels in the **folder structure**
   (`Data/<split>/<subject>/<class>/<img>.png`) and bboxes in sibling
   `<img>_BB.txt` (`x y w h [conf]`) — `make_crawl --from-file-list` parses the
