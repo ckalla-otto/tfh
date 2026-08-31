@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pad-celeba-spoof"
+version = "0.1.0"
+description = "Single-image face Presentation Attack Detection (CEleA-Spoof subset), DINOv2 backbone with BCE + depth-MSE(Smooth-L1) + high-frequency branch + spoof-type supervision"
+requires-python = ">=3.9"
+dependencies = [
+    "torch>=2.1",
+    "torchvision>=0.16",
+    "timm>=0.9",
+    "numpy",
+    "pandas",
+    "scikit-learn",
+    "PyYAML",
+    "tqdm",
+    "matplotlib",
+    "opencv-python-headless",
+]
+
+[project.optional-dependencies]
+# Needed only for pseudo-depth generation (depth_targets.py)
+depth = ["transformers>=4.40"]
+# For downloading the Kaggle mirror
+data = ["kaggle"]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

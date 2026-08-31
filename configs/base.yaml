@@ -1,0 +1,95 @@
+# Default / final-budget config for the two-stream DINOv2 + HF PAD model.
+# Override per-experiment files unknown in configs/exp_*.yaml.
+# All paths are relative to the repo root unless absolute.
+
+out_dir: results
+
+data:
+  root: data/raw/celeba-spoof          # unzipped Kaggle mirror
+  crawl_meta: data/crawl.csv            # optional: a full manifest built from the mirror
+  layout: kaggle_csv                    # kaggle_csv | celeba_json (see src/pad/split.py)
+  subsets_dir: data/subsets             # split CSVs + balance report
+
+  subset:
+    mode: equal_per_spoof_type          # Live + 9 attacks -> 10 classes, equal k per class
+    budget_total: 24000                 # final recommendation; smoke run overrides to 5000
+    split: [0.70, 0.15, 0.15]           # train / val / test (subject-disjoint)
+    seed: 42
+    secondary: [environment, illumination]  # stratified proportionally within each spoof type
+
+  crop:
+    mode: extended_bbox                 # tight_bbox | extended_bbox
+    margin_factor: 1.3                  # bbox -> centered crop of (1.3w, 1.3h), clamped
+    min_side: 64                        # guard against degenerate boxes
+    size: 224                           # input resolution (squared)
+
+  aug:
+    flip: true
+    rotate_deg: 5.0
+    scale_range: 0.05
+    color_jitter: 0.3
+    grayscale_prob: 0.5                 # applied BEFORE HF-map extraction (streams stay consistent)
+    blur_prob: 0.0
+    blur_sigma: 2.0
+
+depth:
+  enabled: true                      # false -> training runs with flat targets everywhere
+  # pseudo-depth targets: ESTIMATED classes get Depth-Anything depth (face region),
+  # FLAT classes get a constant zero plane (also face region).
+  estimator: dav2-small                 # dav2-small | dav2-base | midas | none
+  dav2_model_id: depth-anything/Depth-Anything-V2-Small
+  cache_dir: data/caches/depth_v2_small # per-image .npz {depth: (224,224) [0,1], mask: (224,224)}
+  flat_value: 0.0                       # target value on face region for FLAT classes
+  normalize_mode: relative_face         # divide by face-region max before clamping to [0,1]
+
+model:
+  backbone: vit_base_patch14_dinov2      # timm plain DINOv2-Base (distilled, avgpool-free)
+  pretrained: true
+  depth_res: 112                        # depth head output resolution
+  use_hf_branch: true
+  hf:
+    in_channels: 1                      # luminance high-frequency map
+    channels: [32, 64, 128]
+    blur_sigma: 3.0
+    blur_kernel: 7
+  use_spoof_type_head: true             # 10-way CE head on the fused feature
+  dropout: 0.1
+
+loss:
+  depth_loss: smooth_l1                 # smooth_l1 | mse
+  huber_beta: 0.1                       # in normalized [0,1] depth space
+  lambda_depth: 1.0
+  gamma_hf: 0.1                         # weight of the HF branch auxiliary BCE
+  lambda_type: 0.3                      # weight of the spoof-type CE term
+  conf_weight: true                     # per-image confidence re-weight of the depth term
+  pos_weight_live: 1.0                  # BCE pos-weight for live samples (minority)
+
+train:
+  epochs: 40
+  batch_size: 24                        # actual per-class-balanced batch = floor(b/10)*10
+  lr_backbone: 2.0e-5
+  lr_head: 1.0e-4
+  weight_decay: 1.0e-4
+  scheduler: cosine                     # cosine | none
+  warmup_epochs: 2
+  amp: true
+  grad_accum: 1
+  early_stop_patience: 10               # epochs without val-ACER improvement
+  log_every: 20
+  workers: 4
+
+depth_guard:
+  # Trivial-solution guard: the depth head must keep structure on ESTIMATED targets.
+  min_live_variance: 0.03               # normalized [0,1] depth space, on val
+  min_ratio: 5.0                        # var(estimated) / var(flat)
+  patience: 5                           # epochs below threshold -> abort with loud warning
+
+eval:
+  threshold_source: dev                 # dev (BPCER@target on val) | eer
+  bpcer_target: 0.01
+  tta:
+    enabled: true
+    transforms: [flip]                  # flip | rotate | scale
+  hard_samples:
+    enabled: true
+    top_k: 15

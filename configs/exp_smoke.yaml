@@ -1,0 +1,12 @@
+# Smoke-test config: tiny equal-per-class budget, short run.
+# Usage: python -m pad.train --config configs/exp_smoke.yaml
+include: [base.yaml]
+
+data:
+  subset:
+    budget_total: 5000
+
+train:
+  epochs: 3
+  batch_size: 24
+  log_every: 5
