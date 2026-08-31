@@ -19,9 +19,9 @@ breakdown, confusion matrix, and per-class **hard-sample reports**.
 ## Quick start
 
 ```bash
-python3.13 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt        # or: pip install -e .[depth,data,dev]
-export PYTHONPATH=src
+# uv manages the environment (see pyproject.toml)
+uv venv --python 3.13
+uv sync --extra dev
 
 # 1. download the mirror (env-var creds only)
 export KAGGLE_USERNAME=... KAGGLE_KEY=... PAD_DATASET_SLUG=...
@@ -31,20 +31,23 @@ bash scripts/download_data.sh
 #    -> set data.crawl_meta, then:
 
 # 3. (optional) generate pseudo-depth cache for the estimated classes
-python -m pad depth_targets --config configs/exp_smoke.yaml --splits "train val test"
+uv run python -m pad depth_targets --config configs/exp_smoke.yaml --splits "train val test"
 
 # 4. train (builds splits automatically on first run; add --rebuild-splits to redo)
-python -m pad train --config configs/exp_smoke.yaml --run-name smoke
+uv run python -m pad train --config configs/exp_smoke.yaml --run-name smoke
 
 # 5. evaluate a checkpoint
-python -m pad evaluate --config configs/exp_smoke.yaml \
+uv run python -m pad evaluate --config configs/exp_smoke.yaml \
     --ckpt results/smoke/best.pt --split test
 ```
 
 All CLIs use **Google Fire** (no argparse): flags are just keyword arguments
 (`--config`, `--run-name`, `--rebuild-splits`, `--no-tta`, ...). The
-module-level forms (`python -m pad.train`, `python -m pad.evaluate`,
+module-level forms (`uv run python -m pad.train`, `python -m pad.evaluate`,
 `python -m pad.depth_targets`) work identically.
+
+When running from inside the activated venv, drop the `uv run` prefix
+(`python -m pad train ...`).
 
 ## Repo layout
 
@@ -100,6 +103,9 @@ tfh/
 - The HF map is computed **on-the-fly after augmentation** (not cached) so the
   RGB and HF streams stay perfectly consistent under grayscale/geometric aug.
   The depth cache is the only offline artifact.
+- Dependencies are managed by **uv**: `uv sync` installs the locked resolve
+  (`uv.lock` is gitignored to avoid platform/torch-build differences; regenerate
+  per host with `uv lock --upgrade` if needed). Tests: `uv run pytest`.
 
 ## Known limitations (documented in the write-up)
 

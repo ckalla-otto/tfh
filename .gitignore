@@ -225,3 +225,8 @@ results/
 *.npz
 *.log
 .env
+
+# ===== uv =====
+.venv/
+.uv/
+uv.lock

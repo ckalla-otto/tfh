@@ -18,13 +18,13 @@ dependencies = [
     "tqdm",
     "matplotlib",
     "opencv-python-headless",
+    "transformers>=4.40",
+    "kaggle",
+    "fire>=0.5",
 ]
 
 [project.optional-dependencies]
-# Needed only for pseudo-depth generation (depth_targets.py)
-depth = ["transformers>=4.40"]
-# For downloading the Kaggle mirror
-data = ["kaggle"]
+# Extra packages for development / running tests
 dev = ["pytest"]
 
 [tool.setuptools.packages.find]
@@ -32,3 +32,8 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.uv]
+# PyTorch CUDA wheels available on the T4 VM via a custom index; local/macOS CPU
+# installs use PyPI. See scripts/setup_gpu_vm.sh for the CUDA index workflow.
+index-url = "https://pypi.org/simple"

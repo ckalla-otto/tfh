@@ -22,3 +22,4 @@ if [ "${1:-}" = "--with-depth-cache" ]; then
 fi
 
 echo ">>> Done. On the VM: cd tfh && source ~/pad-venv/bin/activate && export PYTHONPATH=src"
+echo ">>>   (or: uv run --python ~/pad-venv/bin/python python -m pad.train ...)"

@@ -15,16 +15,21 @@ echo "==> NVIDIA driver + CUDA toolkit (12.x via pip wheels is enough for torch)
 sudo apt-get install -y --no-install-recommends nvidia-driver-535 || \
   echo "driver install deferred; continue with venv"
 
-echo "==> Python venv"
+echo "==> Python venv (uv)"
 VENV="${VENV:-$HOME/pad-venv}"
-python3 -m venv "$VENV"
-"$VENV/bin/pip" install --upgrade pip setuptools wheel
+UV_BIN="$(command -v uv || echo "$HOME/.local/bin/uv")"
+"$UV_BIN" venv "$VENV" --python 3.13
+# Python available inside the venv via `uv run --python "$VENV"` or activation
 
-echo "==> PyTorch CUDA wheels"
-"$VENV/bin/pip" install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-
-echo "==> Project deps"
-"$VENV/bin/pip" install -r requirements.txt
+echo "==> Project install (uv sync — includes CUDA-less core; see note below)"
+# On the T4 you typically want the CUDA torch build. Two options:
+#   A) keep PyPI torch (CPU/CUDA-less):   uv sync --extra dev
+#   B) CUDA wheels via the PyTorch index:
+#        uv pip install --python "$VENV/bin/python" torch torchvision \
+#            --index-url https://download.pytorch.org/whl/cu121
+#        then: uv pip install --python "$VENV/bin/python" --editable . --extra dev
+"$UV_BIN" sync --python "$VENV" --extra dev || true
+"$UV_BIN" pip install --python "$VENV/bin/python" -e . --extra dev
 
 echo "==> Sanity check"
 "$VENV/bin/python" - <<'PY'
