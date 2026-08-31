@@ -317,7 +317,9 @@ def build_report(splits: Dict[str, pd.DataFrame]) -> Tuple[str, pd.DataFrame]:
                 problems.append(f"subject overlap {a}<->{b}: n={len(overlap)}")
 
     for s in splits:
-        if splits[s]["image_path"].duplicated().any():
+        # ignore empty image_path rows (file-list crawl paths not yet on disk)
+        nonempty = splits[s]["image_path"].astype(str).replace("", pd.NA).dropna()
+        if nonempty.duplicated().any():
             problems.append(f"{s}: duplicate image paths")
 
     header = ["split"] + [IDX_TO_CLASS[i] for i in range(n_cls)]

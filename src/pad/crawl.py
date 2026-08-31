@@ -230,15 +230,33 @@ def build_crawl_from_file_list(
     file_list: str,
     out_csv: Optional[str] = None,
     include_unknown: bool = False,
+    labels_csv: Optional[str] = None,
 ) -> pd.DataFrame:
     """Build the manifest from a `kaggle datasets files` listing (paths only).
 
     Each line is a relative path in the official layout. No images or metadata
     need to be on disk — bboxes are filled in later (download_subset patches
     them from the per-image `_BB.txt` companions).
+
+    `labels_csv` (optional): path to the official encodings table (e.g. the
+    `label.csv` from `tungnguyentien/celeba-spoof-crop-1-9`) with rows indexed
+    by the relative path (`split/subject/class/img.png`) and official columns
+    40=spoof_type, 41=illumination, 42=environment, 43=live. When provided, the
+    true 10-way spoof type + environment/illumination are filled from it; images
+    that fail to match keep their folder-derived label (999 for unknown attacks).
     """
     lines = [ln.strip() for ln in open(file_list) if ln.strip()]
     records = []
+
+    # label lookup: index = relative path after Data/, cols = official vector
+    lab_rows = idx40 = idx41 = idx42 = None
+    if labels_csv:
+        lab_rows = pd.read_csv(labels_csv, index_col=0)
+        idx40 = lab_rows[lab_rows.columns[40]] if len(lab_rows.columns) > 40 else None
+        idx41 = lab_rows[lab_rows.columns[41]] if len(lab_rows.columns) > 41 else None
+        idx42 = lab_rows[lab_rows.columns[42]] if len(lab_rows.columns) > 42 else None
+
+    n_joined = 0
     for ln in lines:
         # strip size/date columns (the CLI table) if present
         rel = ln.split()[0]
@@ -248,6 +266,17 @@ def build_crawl_from_file_list(
         idx = parsed["spoof_type"]
         if idx is None and not include_unknown:
             continue
+
+        # canonical relative path = split/subject/class/img (== label.csv index)
+        canon = "/".join(rel.split("/")[-4:]) if "/Data/" in rel else rel
+
+        st, illum, env = idx if idx is not None else 999, 0, 0
+        if lab_rows is not None and canon in lab_rows.index:
+            st = int(idx40.loc[canon]) if idx40 is not None else st
+            illum = int(idx41.loc[canon]) if idx41 is not None else illum
+            env = int(idx42.loc[canon]) if idx42 is not None else env
+            n_joined += 1
+
         records.append(
             {
                 "image_id": _sanitize_id(os.path.splitext(rel)[0]),
@@ -255,10 +284,10 @@ def build_crawl_from_file_list(
                 "rel_path": rel,
                 "subject_id": parsed["subject"],
                 "split": parsed["split"],
-                "spoof_type": idx if idx is not None else 999,
-                "is_live": int(idx == 0) if idx is not None else 0,
-                "environment": 0,
-                "illumination": 0,
+                "spoof_type": st,
+                "is_live": int(st == 0),
+                "environment": env,
+                "illumination": illum,
                 "x1": 0.0, "y1": 0.0, "x2": 0.0, "y2": 0.0,
             }
         )
@@ -274,28 +303,36 @@ def build_crawl_from_file_list(
     if out_csv:
         Path(out_csv).parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(out_csv, index=False)
-    _log_file_list_crawl(df)
+    _log_file_list_crawl(df, labels_provided=labels_csv is not None)
+    if labels_csv:
+        n_unmatched = int(df["spoof_type"].eq(999).sum())
+        print(f"  label join: {n_joined}/{len(df)} images matched {labels_csv}; "
+              f"{n_unmatched} kept as 999 (unknown attack type)")
     return df
 
 
-def _log_file_list_crawl(df: pd.DataFrame) -> None:
+def _log_file_list_crawl(df: pd.DataFrame, labels_provided: bool = False) -> None:
     from .split import IDX_TO_CLASS
 
     counts = df["spoof_type"].value_counts().to_dict()
     rows = {IDX_TO_CLASS[i]: counts.get(i, 0) for i in range(len(IDX_TO_CLASS))}
     total = sum(rows.values()) or 1
     n_unknown = int(counts.get(999, 0))
+    frac_unknown = n_unknown / max(len(df), 1)
     print(f"  crawled {len(df)} images from file list")
     print("  per-class:", ", ".join(f"{k}={v} ({100*v/total:.1f}%)" for k, v in rows.items()))
-    if n_unknown:
+    if frac_unknown > (0.1 if labels_provided else 0.0):
         print(
-            f"  WARNING: {n_unknown} images ({100*n_unknown/len(df):.0f}%) have "
-            "UNKNOWN attack type (folder `spoof/`). This mirror only distinguishes "
-            "live vs spoof — the 10-way spoof type is NOT available from the file "
-            "listing. Per-attack-type stratification/eval is impossible with it.\n"
-            "  To get the true spoof_type, use a mirror that ships the official "
-            "per-image annotations (JSON/label files), or accept binary live/spoof."
+            f"  WARNING: {n_unknown} images ({100*frac_unknown:.0f}%) have "
+            "UNKNOWN attack type (folder `spoof/`)."
+            + ("" if labels_provided else
+               " This mirror only distinguishes live vs spoof — the 10-way spoof "
+               "type is NOT available from the file listing; pass --labels <csv> "
+               "to join the official annotations.")
         )
+    elif n_unknown and labels_provided:
+        print(f"  note: {n_unknown} ({100*frac_unknown:.1f}%) images kept as 999 "
+              "(unknown attack type; not in the joined label table).")
 
 
 def build_crawl(
@@ -478,6 +515,7 @@ def main(
     from_metadata: bool = False,
     layout: str = "auto",
     from_file_list: str = None,
+    labels: str = None,
 ) -> None:
     """Crawl the mirror and write the normalized manifest CSV (Fire CLI).
 
@@ -486,6 +524,9 @@ def main(
     `--from-metadata true` builds the manifest only from root-level CSVs.
     `--from-file-list <file>` builds the manifest from a `kaggle datasets files`
     listing (no images on disk) — bboxes get patched later by download_subset.
+    `--labels <csv>` joins the official annotation table (label.csv from
+    tungnguyentien/celeba-spoof-crop-1-9) so the TRUE 10-way spoof_type,
+    illumination and environment are filled from it.
     """
     import sys
 
@@ -495,7 +536,8 @@ def main(
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     if from_file_list:
         _ = build_crawl_from_file_list(
-            from_file_list, out_csv=out, include_unknown=include_unknown
+            from_file_list, out_csv=out, include_unknown=include_unknown,
+            labels_csv=labels,
         )
     else:
         _ = build_crawl(
