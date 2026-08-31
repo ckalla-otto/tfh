@@ -54,7 +54,11 @@ def add_crop_columns(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
             with Image.open(r["image_path"]) as im:
                 w, h = im.size
         except Exception:
-            w, h = 0, 0
+            # image not downloaded yet (metadata-only crawl path): use a synthetic
+            # size derived from the bbox. These crop columns are informational —
+            # the dataset recomputes real crops at load time from the face bbox.
+            w = max(int(float(r["x2"])), int(float(r["y2"])), 1) + 10
+            h = w
         if mode == "tight_bbox":
             c = (int(r["x1"]), int(r["y1"]), int(r["x2"]), int(r["y2"]))
         else:
@@ -69,6 +73,25 @@ def add_crop_columns(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     df["face_x1"], df["face_y1"] = df["x1"], df["y1"]
     df["face_x2"], df["face_y2"] = df["x2"], df["y2"]
     return df
+
+
+def make_splits(config: str = "configs/exp_smoke.yaml", crawl: str = None) -> None:
+    """Build only the stratified subset CSVs + balance report (Fire CLI).
+
+    Uses the crawl manifest (data.crawl_meta, or --crawl to override) WITHOUT
+    needing images on disk, so you can sample the subset and then download only
+    those images.
+    """
+    cfg = load_config(config)
+    if crawl:
+        cfg["data"]["crawl_meta"] = crawl
+    cfg["out_dir"] = str(Path(cfg["out_dir"]))
+    set_seed(cfg["data"]["subset"]["seed"])
+    logger = get_logger()
+    splits = ensure_splits(cfg, logger, rebuild=True)
+    logger.info("subsets ready under %s", cfg["data"]["subsets_dir"])
+    for s, df in splits.items():
+        logger.info("%s: %d images", s, len(df))
 
 
 def ensure_splits(cfg: dict, logger, rebuild: bool) -> dict:

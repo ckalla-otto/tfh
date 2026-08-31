@@ -23,58 +23,74 @@ breakdown, confusion matrix, and per-class **hard-sample reports**.
 uv venv --python 3.13
 uv sync --extra dev
 
-# 1. download the mirror (env-var creds only)
-. .env   # exports KAGGLE_USERNAME/KAGGLE_KEY (or KAGGLE_API_KEY) + PAD_DATASET_SLUG
-bash scripts/download_data.sh
+# 1. download ONLY the metadata tables from the mirror (no images yet)
+mkdir -p data/raw/celeba-spoof data/subset
+for f in train.csv test.csv val.csv metadata.csv; do
+  uv run kaggle datasets download -d "$PAD_DATASET_SLUG" -f "$f" -p data/raw/celeba-spoof
+done
 
-# 2. crawl the mirror -> normalized manifest (data/crawl.csv)
-uv run python -m pad make_crawl --root data/raw/celeba-spoof --out data/crawl.csv
+# 2. crawl the metadata -> normalized manifest (no image files needed)
+uv run python -m pad make_crawl --root data/raw/celeba-spoof --out data/crawl.csv --from-metadata true
 
-# 3. (optional) generate pseudo-depth cache for the estimated classes
-uv run python -m pad depth_targets --config configs/exp_smoke.yaml --splits "train val test"
+# 3. stratify + sample the subset (equal per spoof-type, identity-exclusive)
+uv run python -m pad make_splits --config configs/base.yaml
 
-# 4. train (builds splits automatically on first run; add --rebuild-splits to redo)
-uv run python -m pad train --config configs/exp_smoke.yaml --run-name smoke
+# 4. download ONLY the sampled images
+uv run python -m pad download_subset --subset-dir data/subsets --out-dir data/subset --slug "$PAD_DATASET_SLUG"
 
-# 5. evaluate a checkpoint
-uv run python -m pad evaluate --config configs/exp_smoke.yaml \
-    --ckpt results/smoke/best.pt --split test
+# 5. (optional) pseudo-depth cache
+uv run python -m pad depth_targets --config configs/base.yaml --splits "train val test"
+
+# 6. train + evaluate
+uv run python -m pad train --config configs/base.yaml --run-name smoke
+uv run python -m pad evaluate --config configs/base.yaml --ckpt results/smoke/best.pt --split test
 ```
 
 All CLIs use **Google Fire** (no argparse): flags are just keyword arguments
 (`--config`, `--run-name`, `--rebuild-splits`, `--no-tta`, ...). The
-module-level forms (`uv run python -m pad.train`, `python -m pad.evaluate`,
-`python -m pad.depth_targets`) work identically.
+module-level forms (`uv run python -m pad.train`, `python -m pad.evaluate`, ...)
+work identically.
 
 When running from inside the activated venv, drop the `uv run` prefix
 (`python -m pad train ...`).
 
-## Crawling the dataset (a.k.a. "crawl the DB")
+## Crawling the dataset (and downloading only the subset)
 
 1. **Credentials** — copy `.env.example` to `.env` and fill in `KAGGLE_USERNAME` +
-   `KAGGLE_KEY` (or the legacy `KAGGLE_API_KEY`). Never commit `.env` (it's
-   gitignored).
-2. **Find the mirror** — CelebA-Spoof exists as several Kaggle datasets. Find the
-   slug you want:
+   `KAGGLE_KEY` (or the legacy `KAGGLE_API_KEY`) and `PAD_DATASET_SLUG`. `.env`
+   is gitignored.
+2. **Find the mirror** — browse `kaggle.com/datasets?search=celeba-spoof` or list:
    ```bash
    uv run kaggle datasets list -s "celeba spoof"
    ```
-   (or browse `kaggle.com/datasets?search=celeba-spoof`). Set
-   `PAD_DATASET_SLUG=owner/celeba-spoof-mirror` in `.env`.
-3. **Download** — `bash scripts/download_data.sh` pulls the archive into
-   `data/raw/` and unzips it (mirrors are tens of GB — make sure you have disk).
-4. **Crawl** — `make_crawl` walks every image under the mirror root and joins the
-   labels from either the mirror's own `train.csv`/`test.csv` tables or the
-   official per-image JSONs:
+3. **Metadata-only download** — pull the small label tables (train/test/val CSV or
+   `metadata.csv`) — **not the images**:
    ```bash
-   uv run python -m pad make_crawl --root data/raw/celeba-spoof --out data/crawl.csv
+   uv run kaggle datasets download -d "$PAD_DATASET_SLUG" -f train.csv -p data/raw/celeba-spoof
    ```
-   It prints a per-spoof-type histogram and skips (and counts) any image with no
-   metadata — a complete mirror should show **0 skipped**. The produced
-   `crawl.csv` is the manifest consumed by the split/train step (`data.crawl_meta`).
-5. **Sanity** — `uv run pytest tests/` checks the splitter invariants
-   (equal-per-type, subject-disjoint), and the make_crawl → split → train chain is
-   exercised in `tests/e2e_smoke.py`.
+4. **Crawl the metadata** → `data/crawl.csv` (per-image labels incl. bbox + a
+   `rel_path` used for targeted downloads):
+   ```bash
+   uv run python -m pad make_crawl --root data/raw/celeba-spoof --out data/crawl.csv --from-metadata true
+   ```
+5. **Sample the subset** (equal per spoof-type, identity-exclusive split, with a
+   balance report that FAILS loudly on any invariant violation):
+   ```bash
+   uv run python -m pad make_splits --config configs/base.yaml
+   ```
+6. **Download only the sampled images** (parallel `kaggle datasets download -f`,
+   resume-safe — already-present files are skipped):
+   ```bash
+   uv run python -m pad download_subset --subset-dir data/subsets --out-dir data/subset --slug "$PAD_DATASET_SLUG"
+   # optional dry check that every sampled path exists in the mirror:
+   uv run python -m pad download_subset ... --check-only
+   ```
+
+**Caveat:** per-image downloads require the mirror to expose individual files
+(`kaggle datasets files -d <slug>` lists them). If a mirror packs everything
+into one archive, per-image selection is not supported by the Kaggle API — you'd
+fall back to downloading the whole archive once (`bash scripts/download_data.sh`)
+or pick a mirror that ships per-file images.
 
 ## Repo layout
 
