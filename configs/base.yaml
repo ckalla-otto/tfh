@@ -7,10 +7,11 @@ out_dir: results
 data:
   root: /Users/christiankalla/Downloads/CelebA_Spoof   # on-disk mirror (Data/{train,test}/...)
   subsets_dir: data/subsets             # split CSVs + balance report (produced by `pad prepare`)
+  dataset_dir: data/dataset             # organized image tree (produced by `pad export`)
 
   subset:
     mode: equal_per_spoof_type          # Live + 9 attacks -> 10 classes, equal k per class
-    budget_total: 24000                 # final recommendation; smoke run overrides to 5000
+    budget_total: 20000                 # final recommendation; smoke run overrides to 5000
     split: [0.70, 0.15, 0.15]           # train / val / test (subject-disjoint)
     seed: 42
     secondary: [environment, illumination]  # stratified proportionally within each spoof type

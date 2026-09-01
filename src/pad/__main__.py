@@ -19,6 +19,7 @@ if __name__ == "__main__":
     fire.Fire(
         {
             "prepare": prepare.main,
+            "export": prepare.export,
             "train": train.main,
             "evaluate": evaluate.main,
             "depth_targets": depth_targets.main,

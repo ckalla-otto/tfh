@@ -192,6 +192,7 @@ def main(
     out_manifest: str = "data/crawl.csv",
     subsets_dir: str = "data/subsets",
     include_unknown: bool = False,
+    export_dir: str = None,
 ) -> None:
     """Prepare train/val/test split CSVs from the on-disk mirror (Fire CLI)."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -201,7 +202,7 @@ def main(
             "data": {
                 "crop": {"margin_factor": 1.3, "min_side": 64},
                 "subset": {
-                    "budget_total": 24000,
+                    "budget_total": 20000,
                     "split": [0.70, 0.15, 0.15],
                     "seed": 42,
                     "secondary": ["environment", "illumination"],
@@ -246,6 +247,118 @@ def main(
     )
     if "RESULT: FAIL" in split_result.report:
         raise RuntimeError("subset verification FAILED - see balance_report.md")
+
+    if export_dir:
+        logger.info("exporting dataset -> %s", export_dir)
+        export(subsets_dir=subsets_dir, out_dir=export_dir, link_mode="copy")
+
+
+def _export_one(
+    src: Path,
+    dst_dir: Path,
+    seen: set,
+    mode: str = "copy",
+) -> Path:
+    """Copy one image into `dst_dir` with collision-safe naming.
+
+    Keeps the original basename unless a different source already occupies the
+    same name in `dst_dir`, in which case it appends a numeric suffix.
+    Returns the destination path.
+    """
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    dst = dst_dir / src.name
+    if src.resolve() == dst.resolve():
+        # already in place (e.g. re-running export after CSVs were re-pointed)
+        seen.add(str(dst))
+        return dst
+    if dst.exists() or str(dst) in seen:
+        base, suffix = dst.stem, dst.suffix
+        i = 2
+        while True:
+            cand = dst_dir / f"{base}__{i}{suffix}"
+            i += 1
+            if not cand.exists() and str(cand) not in seen:
+                dst = cand
+                break
+    if mode == "copy":
+        import shutil
+
+        shutil.copy2(src, dst)
+    elif mode == "hardlink":
+        try:
+            dst.hardlink_to(src)
+        except OSError:
+            import shutil
+
+            shutil.copy2(src, dst)
+    elif mode == "symlink":
+        try:
+            dst.symlink_to(src)
+        except OSError:
+            import shutil
+
+            shutil.copy2(src, dst)
+    else:
+        raise ValueError(f"unknown --link-mode {mode!r}; use copy|hardlink|symlink")
+    seen.add(str(dst))
+    return dst
+
+
+def export(
+    subsets_dir: str = "data/subsets",
+    out_dir: str = "data/dataset",
+    link_mode: str = "copy",
+) -> None:
+    """Assemble a self-contained organized dataset under `out_dir`.
+
+    Reads `data/subsets/{train,val,test}.csv` and copies every image into a
+    class-folder layout `{out_dir}/{split}/{spoof_name}/<img>` (real files by
+    default, `--link-mode` can trade space for copying), then rewrites the CSVs'
+    `image_path` / `rel_path` to point at the new files so downstream steps
+    (depth_targets, train, evaluate) are fully self-contained under `data/`.
+
+    Usage (Fire):
+      uv run python -m pad export --subsets-dir data/subsets --out-dir data/dataset
+    """
+    from .split import IDX_TO_CLASS
+
+    subsets_dir = Path(subsets_dir)
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    for split in ("train", "val", "test"):
+        csv = subsets_dir / f"{split}.csv"
+        if not csv.exists():
+            print(f"  skip {split}: {csv} missing")
+            continue
+        df = pd.read_csv(csv)
+        # validate all sources exist before writing anything
+        for _, r in df.iterrows():
+            src = Path(r["image_path"])
+            if not src.exists():
+                raise FileNotFoundError(
+                    f"missing source image for {r['image_id']}: {src}"
+                )
+        print(f"  {split:5s} {len(df):6d} images -> {out_dir / split}/{{class}}/")
+
+        out_paths = []
+        seen = set()
+        for _, r in df.iterrows():
+            st = int(r["spoof_type"])
+            cls = IDX_TO_CLASS[st] if st in IDX_TO_CLASS else "unknown"
+            src = Path(r["image_path"])
+            dst = _export_one(src, out_dir / split / cls, seen, link_mode)
+            out_paths.append(str(dst))
+        df["image_path"] = out_paths
+        df["rel_path"] = [str(Path(p).relative_to(out_dir)) for p in out_paths]
+        df.to_csv(csv, index=False)
+
+        counts = df.groupby("spoof_type")["rel_path"].count()
+        detail = ", ".join(f"{IDX_TO_CLASS[int(k)]}={v}" for k, v in counts.items())
+        print(f"    per-class: {detail}")
+        print(f"  wrote {csv} (image_path -> {out_dir}) <{link_mode}>")
+
+    print(f"done -> {out_dir}")
 
 
 if __name__ == "__main__":

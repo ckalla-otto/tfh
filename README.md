@@ -18,27 +18,33 @@ breakdown, confusion matrix, and per-class **hard-sample reports**.
 
 ## Quick start
 
+> New to this repo? Read **`docs/ONBOARDING.md`** first — it's the fastest
+> path for another agent / fresh machine. `docs/data_pipeline.md` has the
+> full data-layer reference.
+
 ```bash
 # uv manages the environment (see pyproject.toml)
 uv venv --python 3.13
 uv sync --extra dev
 
-# 1. prepare train/val/test from the on-disk mirror + the official labels
-#    (data-root = folder containing Data/{train,test}/<subject>/{live,spoof}/<img>)
+# 1. build the stratified train/val/test CSVs from the on-disk mirror + labels
 uv run python -m pad prepare \
-    --data-root /Users/christiankalla/Downloads/CelebA_Spoof \
+    --data-root /path/to/CelebA_Spoof \      # folder containing Data/{train,test}/...
     --labels data/labels/label.csv \
     --config configs/base.yaml
-cat data/subsets/balance_report.md      # verify RESULT: PASS
+cat data/subsets/balance_report.md          # verify RESULT: PASS
 
-# 2. (optional) pseudo-depth cache for the estimated classes (live + 3D masks)
+# 2. organize the images into a self-contained, class-folder dataset under data/
+uv run python -m pad export --subsets-dir data/subsets --out-dir data/dataset
+
+# 3. (optional) pseudo-depth cache for the estimated classes (live + 3D masks)
 uv run python -m pad depth_targets --config configs/base.yaml --splits "train val test"
 
-# 3. train + evaluate
+# 4. train + evaluate
 uv run python -m pad train --config configs/base.yaml --run-name smoke
 uv run python -m pad evaluate --config configs/base.yaml --ckpt results/smoke/best.pt --split test
 
-# 4. predict a single image with a probability
+# 5. predict a single image with a probability
 uv run python -m pad predict --image_path path/to/img.jpg --ckpt results/smoke/best.pt
 uv run python -m pad predict --image_path img.jpg --ckpt best.pt --bbox "10 20 260 300"
 ```
@@ -50,56 +56,60 @@ All CLIs use **Google Fire** (no argparse): flags are just keyword arguments
 When running from inside the activated venv, drop the `uv run` prefix
 (`python -m pad train ...`).
 
-## Preparing the dataset (`pad prepare`)
+## The dataset layout
 
-Assumes the mirror is already downloaded to disk:
+After `pad prepare` + `pad export` the dataset is **self-contained under `data/`**:
 
 ```
-<data-root>/Data/{train,test}/<subject>/{live,spoof}/<img>.png|jpg
-<data-root>/Data/{train,test}/<subject>/{live,spoof}/<img>_BB.txt   # bbox x y w h [conf]
+data/
+├── labels/label.csv            # official annotations (needed by prepare)
+├── subsets/{train,val,test}.csv  # METADATA truth (bbox, spoof_type, env, illum), image_path -> data/dataset
+└── dataset/
+    ├── train/{live,photo,poster,a4,face_mask,upper_body_mask,region_mask,pc_pad,phone,3d_mask}/
+    ├── val/   …same…
+    └── test/  …same…
 ```
 
-and the official annotation table at `data/labels/label.csv` (indexed by
-`split/subject/class/<img>`; column 40 = spoof type 0–9, 41 = illumination,
-42 = environment). The official `label.csv` can be obtained from the Kaggle
-dataset `tungnguyentien/celeba-spoof-crop-1-9`.
+- `data/dataset` contains the actual image files (copies) organized by spoof
+  name; no references to the original mirror.
+- The CSVs carry all labels/bboxes and point `image_path` at the images; every
+  downstream script (`train`, `evaluate`, `depth_targets`, `predict`) reads
+  them.
+- Default subset: **20,000** images — train 14k / val 3k / test 3k (1,400 /
+  300 / 300 per spoof type), identity-exclusive and equal per class.
 
-What `pad prepare` does:
+## Preparing the dataset
 
-1. **Walks all images** under `Data/` — the official `train/` and `test/`
-   folders are **pooled together** (the folder names are arbitrary download
-   parts; this lets the missing attack classes in `train/` be covered by
-   `test/`).
-2. **Reads each bbox** from the sibling `<img>_BB.txt` (`x y w h`).
-3. **Joins `label.csv`** → true `spoof_type` (0–9), `environment`,
-   `illumination`; images without a valid label (or bbox) are dropped unless
-   `--include-unknown`.
-4. **Builds a stratified, identity-exclusive 70/15/15 subset** with equal
-   per-spoof-type counts; writes `data/subsets/{train,val,test}.csv` +
-   `balance_report.md` (fails loudly on any invariant violation).
+Two steps, documented in detail in **[`docs/data_pipeline.md`](docs/data_pipeline.md)**:
 
-Re-run `pad prepare` with a different `--subsets-dir` / config to change the
-budget or seed (e.g. `configs/exp_smoke.yaml` for a quick pilot).
+1. **`pad prepare`** — walk the on-disk mirror (`Data/{train,test}/<subject>/{live,spoof}/<img>.png|jpg` + sibling `<img>_BB.txt` bboxes), join the official `label.csv` (from Kaggle `tungnguyentien/celeba-spoof-crop-1-9`, indexed by the image's relative path, col 40 = spoof type 0–9), and build a stratified, identity-exclusive 70/15/15 subset with equal per-spoof-type counts → `data/subsets/{train,val,test}.csv` + `balance_report.md` (fails loudly on violation).
+2. **`pad export`** — copy the subset images into the self-contained class-folder tree `data/dataset/{train,val,test}/{spoof_name}/` (real files) and re-point the CSVs' `image_path` there.
+
+Run with a different `--subsets-dir` / `--config` to change budget or seed
+(e.g. `configs/exp_smoke.yaml` for a quick pilot).
 
 ## Repo layout
 
 ```
 tfh/
-├── configs/              # base.yaml (+ include-merging experiment configs)
-├── docs/architecture.md
+├── configs/                  # base.yaml (+ include-merging experiment configs)
+├── docs/
+│   ├── ONBOARDING.md         # fastest path for new agent / fresh machine
+│   ├── architecture.md       # model diagram, loss, training, eval
+│   └── data_pipeline.md      # data-layer reference (schema, prepare/export)
 ├── src/pad/
-│   ├── prepare.py        # build train/val/test from on-disk data + label.csv
-│   ├── split.py          # equal-per-spoof-type, identity-exclusive subsetting
-│   ├── data.py           # dataset, extended crop, face masks, HF maps, aug, samplers
-│   ├── depth_targets.py  # offline Depth-Anything pseudo-depth cache
-│   ├── model.py          # DINOv2 + HF branch + heads
-│   ├── losses.py         # BCE + Smooth-L1(depth) + BCE(hf) + CE(spoof-type)
-│   ├── inference.py      # shared scoring (used by train + evaluate)
-│   ├── train.py          # training loop (AMP, guard, early stop)
-│   ├── evaluate.py       # metrics, per-type, confusion, hard samples
-│   └── predict.py        # single-image live/spoof probability (+ depth diagnostic)
-├── tests/test_split.py   # stratification invariants
-└── data/ results/        # gitignored
+│   ├── prepare.py            # build train/val/test CSVs from on-disk data + label.csv (+ `export`)
+│   ├── split.py              # equal-per-spoof-type, identity-exclusive subsetting
+│   ├── data.py               # dataset, extended crop, face masks, HF maps, aug, samplers
+│   ├── depth_targets.py      # offline Depth-Anything pseudo-depth cache
+│   ├── model.py              # DINOv2 + HF branch + heads
+│   ├── losses.py             # BCE + Smooth-L1(depth) + BCE(hf) + CE(spoof-type)
+│   ├── inference.py          # shared scoring (used by train + evaluate)
+│   ├── train.py              # training loop (AMP, guard, early stop)
+│   ├── evaluate.py           # metrics, per-type, confusion, hard samples
+│   └── predict.py            # single-image live/spoof probability (+ depth diagnostic)
+├── tests/test_split.py       # stratification invariants
+└── data/ results/            # gitignored (data/dataset is built by export)
 ```
 
 ## Key design decisions (locked during planning)

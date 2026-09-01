@@ -38,7 +38,7 @@ L = BCE(binary) + lambda_d * D(depth, face-masked) + gamma_hf * BCE(hf) + lambda
   | flat | photo, poster, a4, region_mask, pc_pad, phone | constant zero (face rect) |
 - Sequence: `Smooth-L1 > MSE` for noisy pseudo-depth targets; MSE kept as an ablation.
 
-## Training (T4, CUDA)
+## Training (GPU, CUDA)
 
 - AMP fp16 (`torch.autocast` + GradScaler), batch 20 (10 classes x 2) @224 px.
 - AdamW: backbone 2e-5 / heads 1e-4; cosine + 2-epoch warmup; 40 epochs default.
