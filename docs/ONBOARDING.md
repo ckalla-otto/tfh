@@ -50,7 +50,8 @@ cat data/subsets/balance_report.md     # must end "RESULT: PASS"
 # (b) organize images into a self-contained, class-folder dataset under data/
 uv run python -m pad export --subsets-dir data/subsets --out-dir data/dataset
 
-# (c) optional: pseudo-depth cache for the ESTIMATED classes (live + 3D masks)
+# (c) optional pseudo-depth cache — ONLY needed if you enable the depth head
+#    (set model.use_depth_head: true in your config). Skip for the simple model.
 uv run python -m pad depth_targets --config configs/base.yaml --splits "train val test"
 
 # (d) train + evaluate

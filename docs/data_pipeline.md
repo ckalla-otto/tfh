@@ -93,6 +93,9 @@ Spoof order → folder name (from `split.IDX_TO_CLASS`):
 
 ## Depth cache (`pad depth_targets`)
 
+Only needed when the **depth head is enabled** (`model.use_depth_head: true`).
+When depth is off (default), you can skip `pad depth_targets` entirely.
+
 - Only for **ESTIMATED** classes: `live, face_mask, upper_body_mask, 3d_mask`.
 - Forward Depth-Anything-V2-Small (`-hf` transformers checkpoint) on the
   extended crop; normalize relative to the face region; cache as

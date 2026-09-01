@@ -80,7 +80,14 @@ class DepthHead(nn.Module):
 
 
 class PADModel(nn.Module):
-    """Shared-DINOv2 PAD model with binary + depth + spoof-type + HF heads."""
+    """Shared-DINOv2 PAD model with binary + optional depth + spoof-type + HF heads.
+
+    Depth supervision is OPTIONAL (`model.use_depth_head: false` by default).
+    When disabled, no DepthHead is built and `forward` omits the `depth` key,
+    so training a simple first-shot model needs no depth cache or pseudo-depth.
+    Enable depth as an experiment with `model.use_depth_head: true` (+ run
+    `pad depth_targets` first).
+    """
 
     def __init__(self, cfg: dict):
         super().__init__()
@@ -98,6 +105,7 @@ class PADModel(nn.Module):
 
         self.use_hf = bool(mcfg.get("use_hf_branch", True))
         self.use_spoof_type = bool(mcfg.get("use_spoof_type_head", True))
+        self.use_depth = bool(mcfg.get("use_depth_head", False))
         hf_cfg = mcfg.get("hf", {})
         self.depth_res = int(mcfg.get("depth_res", 112))
 
@@ -113,7 +121,8 @@ class PADModel(nn.Module):
         if self.use_spoof_type:
             self.head_spoof = nn.Linear(D, SPOOF_TYPE_N)
 
-        self.depth_head = DepthHead(D, self.depth_res)
+        if self.use_depth:
+            self.depth_head = DepthHead(D, self.depth_res)
 
         # registrable tensors (ImageNet stats)
         self.register_buffer(
@@ -125,10 +134,11 @@ class PADModel(nn.Module):
         return (img - self.mean.to(img.device)) / self.std.to(img.device)
 
     def forward(self, img: torch.Tensor, hf: torch.Tensor = None) -> dict:
-        """All heads in a single pass.
+        """Run all enabled heads in a single pass.
 
         img: (B,3,H,W) in [0,1]; hf: (B,1,H,W) high-frequency map.
-        Returns dict with keys: binary, spoof_type(opt), depth, hf_binary(opt).
+        Returns dict with keys: binary, depth(optional), spoof_type(opt),
+        hf_binary(opt). Depth is present only when `use_depth_head` is on.
         """
         x = self._norm(img)
         feats = self.backbone.forward_features(x)  # (B, 1+N, D), post-norm
@@ -144,11 +154,12 @@ class PADModel(nn.Module):
 
         out = {
             "binary": self.head_binary(fused),  # (B, 1)
-            "depth": self._depth_from_patch(patch),
             "hf_binary": hf_logit,
         }
         if self.use_spoof_type:
             out["spoof_type"] = self.head_spoof(fused)
+        if self.use_depth:
+            out["depth"] = self._depth_from_patch(patch)
         return out
 
     def _depth_from_patch(self, patch: torch.Tensor) -> torch.Tensor:

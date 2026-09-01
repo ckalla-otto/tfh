@@ -72,11 +72,12 @@ def _predict_one(
     model.eval()
     out = model(img_t, hf_t)
     p_live = torch.sigmoid(out["binary"]).float().cpu()
-    dep = out["depth"].float().cpu()
+    dep = out["depth"].float().cpu() if "depth" in out else torch.zeros((1, 112, 112))
     if use_flip:
         out_f = model(torch.flip(img_t, dims=[3]), torch.flip(hf_t, dims=[3]))
         p_live = 0.5 * (p_live + torch.sigmoid(out_f["binary"]).float().cpu())
-        dep = 0.5 * (dep + out_f["depth"].float().cpu())
+        dep_f = out_f["depth"].float().cpu() if "depth" in out_f else dep
+        dep = 0.5 * (dep + dep_f)
     stype = int(out["spoof_type"].argmax(dim=1).item()) if "spoof_type" in out else None
     return {
         "live_prob": float(p_live.item()),

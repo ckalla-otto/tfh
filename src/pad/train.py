@@ -59,8 +59,22 @@ def load_splits(cfg: dict) -> dict:
 
 
 def depth_guard_stats(pred: dict, cfg: dict) -> dict:
-    """Trivial-solution guard: variance on estimated vs flat groups (val)."""
+    """Trivial-solution guard: variance on estimated vs flat groups (val).
+
+    When the depth head is disabled (`model.use_depth_head: false`), this is a
+    no-op: all values are nan/not-violated so training proceeds normally.
+    """
     dg = cfg.get("depth_guard", {})
+    if not cfg.get("model", {}).get("use_depth_head", False):
+        # depth head disabled -> nothing to guard; never violate
+        return {
+            "var_estimated": float("nan"),
+            "var_flat": float("nan"),
+            "min_live_variance": float(dg.get("min_live_variance", 0.03)),
+            "min_ratio": float(dg.get("min_ratio", 5.0)),
+            "ratio": float("nan"),
+            "violated": False,
+        }
     est = np.array(
         [IDX_TO_CLASS[int(t)] in ESTIMATED_CLASSES for t in pred["spoof_type"]]
     )
@@ -116,8 +130,11 @@ def run_training(
     logger.info("Device: %s", device)
 
     splits = load_splits(cfg)
-    depth_enabled = cfg["depth"].get("enabled", True)
-    depth_cache = cfg["depth"].get("cache_dir") if depth_enabled else None
+    use_depth = bool(cfg.get("model", {}).get("use_depth_head", False))
+    depth_enabled = bool(cfg["depth"].get("enabled", True))
+    depth_cache = (
+        cfg["depth"].get("cache_dir") if (use_depth and depth_enabled) else None
+    )
     loaders, samplers = build_loaders(
         cfg, splits, depth_cache=depth_cache, seed=cfg["data"]["subset"]["seed"]
     )

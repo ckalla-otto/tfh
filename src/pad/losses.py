@@ -66,7 +66,11 @@ class PADLoss(nn.Module):
             pos_weight=torch.tensor(self.w_pos, device=pred["binary"].device),
         )
 
-        depth_ret = self._depth_term(pred["depth"], batch)
+        depth_ret = (
+            self._depth_term(pred["depth"], batch)
+            if pred.get("depth") is not None
+            else torch.zeros_like(bce)
+        )
         d_loss = depth_ret
 
         hf_bce = torch.zeros_like(bce)

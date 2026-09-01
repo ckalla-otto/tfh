@@ -37,11 +37,18 @@ def predict_epoch(
     scores, labels, stypes, envs, illum, keys = ([] for _ in range(6))
     depth_vars, hf_ens, spoof_pred = [], [], []
     depth_res = int(cfg.get("model", {}).get("depth_res", 112))
+    use_depth = bool(cfg.get("model", {}).get("use_depth_head", False))
 
     def _single(img, hf):
         out = model(img, hf)
         p = torch.sigmoid(out["binary"]).squeeze(1)
-        dp = out["depth"][:, 0]
+        # depth is optional; when disabled return a flat (zero) map so metrics
+        # that read depth_var still produce sensible (flat) values
+        dp = (
+            out["depth"][:, 0]
+            if use_depth
+            else torch.zeros((p.shape[0], depth_res, depth_res), device=p.device)
+        )
         sp = None
         if "spoof_type" in out:
             sp = out["spoof_type"].argmax(dim=1)

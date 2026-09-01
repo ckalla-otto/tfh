@@ -29,14 +29,21 @@ Input A: extended face crop 224x224x3     Input B: high-frequency map 224x224x1
 L = BCE(binary) + lambda_d * D(depth, face-masked) + gamma_hf * BCE(hf) + lambda_t * CE(spoof_type)
 ```
 
+The depth term is **OPTIONAL**: with `model.use_depth_head: false` (default) the
+model has **no depth head** and the loss is simply
+`BCE(binary) + gamma_hf * BCE(hf) + lambda_t * CE(spoof_type)`. Turn depth on as
+an experiment with `model.use_depth_head: true` (and run `pad depth_targets` first).
+
 - `D` is **Smooth-L1 (Huber beta=0.1)** by default (MSE ablatable), **confidence-weighted**
   per-image (`w = clamp(var_i / median_var, 0.3, 2.0)` on the estimated samples; flats weight 1).
-- Depth targets per class:
+- Depth targets per class (when depth is enabled):
   | group | classes | target |
   |---|---|---|
   | estimated | live, face_mask, upper_body_mask, 3d_mask | Depth-Anything pseudo-depth (face rect, [0,1]) |
   | flat | photo, poster, a4, region_mask, pc_pad, phone | constant zero (face rect) |
 - Sequence: `Smooth-L1 > MSE` for noisy pseudo-depth targets; MSE kept as an ablation.
+- The depth head consumes the DINOv2 **patch tokens**; when disabled those tokens
+  are simply not used by any head.
 
 ## Training (GPU, CUDA)
 

@@ -45,7 +45,9 @@ depth:
 model:
   backbone: vit_base_patch14_dinov2      # timm plain DINOv2-Base (distilled, avgpool-free)
   pretrained: true
-  depth_res: 112                        # depth head output resolution
+  use_depth_head: false                  # default: no depth head (simple first-shot model);
+                                         # experiment: set true + run `pad depth_targets` first
+  depth_res: 112                        # depth head output resolution (used only when use_depth_head=true)
   use_hf_branch: true
   hf:
     in_channels: 1                      # luminance high-frequency map

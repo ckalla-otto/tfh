@@ -1,12 +1,13 @@
 # tfh — Single-image Face Presentation Attack Detection (PAD)
 
-PyTorch implementation of a **two-stream PAD model on a shared DINOv2 backbone**,
+PyTorch implementation of a **PAD model on a shared DINOv2 backbone**,
 trained on a limited, stratified subset of **CelebA-Spoof** (from Kaggle):
 
 - **binary live/spoof** head → BCE
-- **depth-regression** head → Smooth-L1 / MSE on face-masked pseudo-depth:
-  live + physical-3D spoof classes regress a Depth-Anything depth map, the six
-  flat 2D attack classes regress a flat zero plane
+- **depth-regression** head → Smooth-L1 / MSE on face-masked pseudo-depth
+  (live + physical-3D spoof classes regress a Depth-Anything depth map, the
+  six flat 2D attack classes regress a flat zero plane) — **optional**,
+  off by default (`model.use_depth_head: false`), an experiment to enable
 - **high-frequency texture branch** (luminance − Gaussian blur) → catches borders,
   edges, moiré, print/screen artifacts of the presentation medium
 - **spoof-type auxiliary head** (10-way CE) → semantic multi-task supervision
