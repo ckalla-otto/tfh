@@ -37,6 +37,9 @@ uv run ruff format      # run before finishing any change
 ## 3. The canonical pipeline (run in this order)
 
 ```bash
+# (0) fetch + verify the official annotations (one time per machine)
+bash scripts/fetch_annotations.sh
+
 # (a) create the stratified subset CSVs from the on-disk mirror + label.csv
 uv run python -m pad prepare \
     --data-root /path/to/CelebA_Spoof \
@@ -88,11 +91,17 @@ data/
 The `data/` directory is gitignored. `data/dataset` is fully self-contained
 (no symlinks): the machine can drop the original mirror after `export`.
 
-> Getting `data/labels/label.csv`: the official CelebA-Spoof annotation vector is
-> available on Kaggle as `tungnguyentien/celeba-spoof-crop-1-9` →
-> `CelebA_Spoof_crop_1_9/data_1.0_128/label.csv`. It is indexed by the relative
-> path `split/subject/class/<img>`; column 40 = spoof type 0-9, 41 =
-> illumination, 42 = environment.
+> Getting `data/labels/label.csv`: **one command** fetches it from Kaggle and
+> verifies its committed SHA-256 checksum:
+> ```bash
+> bash scripts/fetch_annotations.sh
+> ```
+> (Downloads only `CelebA_Spoof_crop_1_9/data_1.0_128/label.csv` from
+> `tungnguyentien/celeba-spoof-crop-1-9`, ~60 MB — no images.) The official
+> annotation vector is indexed by the relative path `split/subject/class/<img>`;
+> column 40 = spoof type 0-9, 41 = illumination, 42 = environment. `pad prepare`
+> verifies this file against `data/labels/label.csv.sha256` and fails loudly on
+> mismatch.
 
 ## 5. Config (`configs/base.yaml`)
 

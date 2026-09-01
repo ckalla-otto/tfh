@@ -61,6 +61,27 @@ def _read_bb(img_path: Path) -> Optional[tuple]:
         return None
 
 
+def verify_labels_checksum(labels_csv: str) -> None:
+    """Verify `label.csv` against the committed `<label>.sha256` (if present).
+
+    Raises a clear error pointing at scripts/fetch_annotations.sh on mismatch.
+    No-op if no checksum file exists next to the CSV.
+    """
+    import hashlib
+
+    csv_path = Path(labels_csv)
+    sha_path = csv_path.with_suffix(csv_path.suffix + ".sha256")
+    if not sha_path.exists() or not csv_path.exists():
+        return
+    expected = sha_path.read_text().strip().split()[0]
+    h = hashlib.sha256(csv_path.read_bytes()).hexdigest()
+    if h != expected:
+        raise RuntimeError(
+            f"SHA-256 mismatch for {csv_path}. Expected {expected}, got {h}. "
+            "Re-fetch with:\n  bash scripts/fetch_annotations.sh"
+        )
+
+
 def build_manifest(
     data_root: str,
     labels_csv: str = "data/labels/label.csv",
@@ -76,6 +97,7 @@ def build_manifest(
 
     labels = None
     if labels_csv and Path(labels_csv).exists():
+        verify_labels_checksum(labels_csv)
         lab = pd.read_csv(labels_csv)
         first = lab.columns[0]
         lab = lab.set_index(first)

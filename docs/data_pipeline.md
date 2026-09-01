@@ -16,13 +16,18 @@ Companion to `docs/ONBOARDING.md` (read that first for the commands).
    - Images without a bbox are skipped (cannot be face-cropped for PAD).
 
 2. **Official annotations** `data/labels/label.csv`:
-   - From Kaggle `tungnguyentien/celeba-spoof-crop-1-9` →
-     `CelebA_Spoof_crop_1_9/data_1.0_128/label.csv`.
+   - Fetch + verify with one command (commit-checksum checked):
+     `bash scripts/fetch_annotations.sh`
+   - Source: Kaggle `tungnguyentien/celeba-spoof-crop-1-9` →
+     `CelebA_Spoof_crop_1_9/data_1.0_128/label.csv` (~60 MB, no images).
    - Row index = relative path `split/subject/class/<img>` (matches the mirror).
    - Column meaning (official 44-column vector): `[0:40]` face attributes,
      `[40]` spoof type 0-9, `[41]` illumination, `[42]` environment.
    - Images whose label isn't in the CSV (or with an invalid spoof type) are
      dropped unless `--include-unknown` (then kept as 999).
+   - `pad prepare` verifies `label.csv` against the committed
+     `data/labels/label.csv.sha256` check; mismatch → hard error telling you to
+     re-run `bash scripts/fetch_annotations.sh`.
 
 ## `pad prepare`
 

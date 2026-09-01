@@ -27,6 +27,9 @@ breakdown, confusion matrix, and per-class **hard-sample reports**.
 uv venv --python 3.13
 uv sync --extra dev
 
+# 0. fetch + verify the official annotations (one time per machine)
+bash scripts/fetch_annotations.sh
+
 # 1. build the stratified train/val/test CSVs from the on-disk mirror + labels
 uv run python -m pad prepare \
     --data-root /path/to/CelebA_Spoof \      # folder containing Data/{train,test}/...
@@ -82,7 +85,7 @@ data/
 
 Two steps, documented in detail in **[`docs/data_pipeline.md`](docs/data_pipeline.md)**:
 
-1. **`pad prepare`** — walk the on-disk mirror (`Data/{train,test}/<subject>/{live,spoof}/<img>.png|jpg` + sibling `<img>_BB.txt` bboxes), join the official `label.csv` (from Kaggle `tungnguyentien/celeba-spoof-crop-1-9`, indexed by the image's relative path, col 40 = spoof type 0–9), and build a stratified, identity-exclusive 70/15/15 subset with equal per-spoof-type counts → `data/subsets/{train,val,test}.csv` + `balance_report.md` (fails loudly on violation).
+1. **`pad prepare`** — walk the on-disk mirror (`Data/{train,test}/<subject>/{live,spoof}/<img>.png|jpg` + sibling `<img>_BB.txt` bboxes), join the official `label.csv` (fetched via `bash scripts/fetch_annotations.sh`, indexed by the image's relative path, col 40 = spoof type 0–9, SHA-256-verified against the committed `data/labels/label.csv.sha256`), and build a stratified, identity-exclusive 70/15/15 subset with equal per-spoof-type counts → `data/subsets/{train,val,test}.csv` + `balance_report.md` (fails loudly on violation).
 2. **`pad export`** — copy the subset images into the self-contained class-folder tree `data/dataset/{train,val,test}/{spoof_name}/` (real files) and re-point the CSVs' `image_path` there.
 
 Run with a different `--subsets-dir` / `--config` to change budget or seed
