@@ -230,3 +230,5 @@ results/
 .venv/
 .uv/
 uv.lock
+
+data_remote.zip

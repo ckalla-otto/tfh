@@ -44,6 +44,8 @@ an experiment with `model.use_depth_head: true` (and run `pad depth_targets` fir
 - Sequence: `Smooth-L1 > MSE` for noisy pseudo-depth targets; MSE kept as an ablation.
 - The depth head consumes the DINOv2 **patch tokens**; when disabled those tokens
   are simply not used by any head.
+- **Evaluation protocol** for the depth add-on (baseline vs +depth, depth
+  diagnostics, expected 3D-mask caveats) is in `report.md §2.1`.
 
 ## Training (GPU, CUDA)
 
