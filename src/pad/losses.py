@@ -3,6 +3,7 @@
 
 L = BCE(binary) + lambda_d * depth  + gamma_hf * BCE(hf) + lambda_t * CE(spoof_type)
 """
+
 from __future__ import annotations
 
 import torch
@@ -60,9 +61,9 @@ class PADLoss(nn.Module):
     def forward(self, pred: dict, batch: dict) -> dict:
         target = batch["label"].squeeze(1)
         bce = F.binary_cross_entropy_with_logits(
-            pred["binary"].squeeze(1), target, pos_weight=torch.tensor(
-                self.w_pos, device=pred["binary"].device
-            )
+            pred["binary"].squeeze(1),
+            target,
+            pos_weight=torch.tensor(self.w_pos, device=pred["binary"].device),
         )
 
         depth_ret = self._depth_term(pred["depth"], batch)

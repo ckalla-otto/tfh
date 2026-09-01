@@ -10,6 +10,7 @@ FLAT classes need no estimation: the dataloader synthesizes a flat plane.
 Usage:
   python -m pad.depth_targets --config configs/exp_smoke.yaml --splits train val test
 """
+
 from __future__ import annotations
 
 import sys
@@ -42,7 +43,7 @@ def _build_estimator(kind: str, model_id: str):
         inputs = {k: v.to(device) for k, v in inputs.items()}
         with torch.no_grad():
             depth = mdl(**inputs).predicted_depth  # (1, H, W)
-        depth = depth.float().cpu().numpy()       # (1, H, W) in [0, 1]
+        depth = depth.float().cpu().numpy()  # (1, H, W) in [0, 1]
         return depth
 
     return _predict
@@ -62,19 +63,26 @@ def _process_row(row, estimator, cfg: dict, out_dir: Path) -> None:
     img = Image.open(image_path).convert("RGB")
     w, h = img.size
     c = make_extended_crop_bbox(
-        w, h,
-        float(row["face_x1"]), float(row["face_y1"]),
-        float(row["face_x2"]), float(row["face_y2"]),
-        margin, min_side,
+        w,
+        h,
+        float(row["face_x1"]),
+        float(row["face_y1"]),
+        float(row["face_x2"]),
+        float(row["face_y2"]),
+        margin,
+        min_side,
     )
     crop = img.crop(c)
 
-    depth = estimator(crop)                 # (1, H_est, W_est)
-    depth_r = np.array(
-        Image.fromarray((np.clip(depth[0], 0, 1) * 255).astype(np.uint8)).resize(
-            (CACHE_RES, CACHE_RES), Image.BILINEAR
-        )
-    ).astype(np.float32) / 255.0
+    depth = estimator(crop)  # (1, H_est, W_est)
+    depth_r = (
+        np.array(
+            Image.fromarray((np.clip(depth[0], 0, 1) * 255).astype(np.uint8)).resize(
+                (CACHE_RES, CACHE_RES), Image.BILINEAR
+            )
+        ).astype(np.float32)
+        / 255.0
+    )
 
     # face rectangle on the 224 grid
     mask = np.zeros((CACHE_RES, CACHE_RES), dtype=np.float32)
@@ -86,7 +94,7 @@ def _process_row(row, estimator, cfg: dict, out_dir: Path) -> None:
     if fx2 > fx0 and fy2 > fy0:
         sx = CACHE_RES / cw
         sy = CACHE_RES / ch
-        mask[int(fy0 * sy):int(fy2 * sy), int(fx0 * sx):int(fx2 * sx)] = 1.0
+        mask[int(fy0 * sy) : int(fy2 * sy), int(fx0 * sx) : int(fx2 * sx)] = 1.0
 
     # normalize relative to the face region only
     norm = depth_r * mask

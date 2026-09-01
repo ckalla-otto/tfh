@@ -9,6 +9,7 @@ Usage:
   from pad.face import detect_face_bbox
   box = detect_face_bbox(pil_rgb)          # (x1, y1, x2, y2) in absolute px
 """
+
 from __future__ import annotations
 
 from typing import Optional, Tuple
@@ -34,7 +35,8 @@ def _get_app(min_conf: float = 0.5, det_size: Tuple[int, int] = (640, 640)):
         from insightface.app import FaceAnalysis
 
         use = [
-            p for p in ("CUDAExecutionProvider", "CPUExecutionProvider")
+            p
+            for p in ("CUDAExecutionProvider", "CPUExecutionProvider")
             if p in _available_providers()
         ] or ["CPUExecutionProvider"]
         # detection only -> loads the SCRFD detector (buffalo_l), not recognition.

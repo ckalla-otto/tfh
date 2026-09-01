@@ -12,6 +12,7 @@ Forward-path summary (locked in the plan):
                  +-- spoof-type head (10)    -- CE
         HF-emb alone -> hf binary head       -- BCE (aux, gamma)
 """
+
 from __future__ import annotations
 
 import torch
@@ -31,18 +32,24 @@ class HFBranch(nn.Module):
         super().__init__()
         c0, c1, c2 = channels
         self.net = nn.Sequential(
-            nn.Conv2d(1, c0, kernel_size=3, padding=1), nn.BatchNorm2d(c0), nn.ReLU(inplace=True),
-            nn.Conv2d(c0, c1, kernel_size=3, padding=1, stride=2), nn.BatchNorm2d(c1), nn.ReLU(inplace=True),
-            nn.Conv2d(c1, c2, kernel_size=3, padding=1, stride=2), nn.BatchNorm2d(c2), nn.ReLU(inplace=True),
+            nn.Conv2d(1, c0, kernel_size=3, padding=1),
+            nn.BatchNorm2d(c0),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(c0, c1, kernel_size=3, padding=1, stride=2),
+            nn.BatchNorm2d(c1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(c1, c2, kernel_size=3, padding=1, stride=2),
+            nn.BatchNorm2d(c2),
+            nn.ReLU(inplace=True),
             nn.AdaptiveAvgPool2d(1),
         )
         self.proj = nn.Sequential(nn.Flatten(), nn.Linear(c2, out_dim))
         self.head = nn.Linear(out_dim, 1)  # auxiliary BCE head on the HF embed
 
     def forward(self, hf: torch.Tensor):
-        x = self.net(hf)            # (B, 128, 1, 1)
-        emb = self.proj(x)          # (B, D)
-        logit = self.head(emb)      # (B, 1)
+        x = self.net(hf)  # (B, 128, 1, 1)
+        emb = self.proj(x)  # (B, D)
+        logit = self.head(emb)  # (B, 1)
         return emb, logit
 
 
@@ -56,15 +63,18 @@ class DepthHead(nn.Module):
             nn.Conv2d(in_dim, 128, kernel_size=1), nn.ReLU(inplace=True)
         )
         self.conv = nn.Sequential(
-            nn.Conv2d(128, 64, kernel_size=3, padding=1), nn.ReLU(inplace=True),
+            nn.Conv2d(128, 64, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
             nn.Conv2d(64, 1, kernel_size=3, padding=1),
         )
 
     def forward(self, patch_tokens: torch.Tensor) -> torch.Tensor:
         x = self.proj(patch_tokens)
         x = F.interpolate(
-            x, size=(self.depth_res, self.depth_res),
-            mode="bilinear", align_corners=False,
+            x,
+            size=(self.depth_res, self.depth_res),
+            mode="bilinear",
+            align_corners=False,
         )
         return self.conv(x)  # (B, 1, depth_res, depth_res)
 
@@ -78,7 +88,9 @@ class PADModel(nn.Module):
         self.backbone = timm.create_model(
             mcfg["backbone"],
             pretrained=bool(mcfg.get("pretrained", True)),
-            img_size=int(mcfg.get("img_size", 224)),  # DINOv2 defaults to 518; we use 224
+            img_size=int(
+                mcfg.get("img_size", 224)
+            ),  # DINOv2 defaults to 518; we use 224
             num_classes=0,
         )
         self.embed_dim = getattr(self.backbone, "embed_dim", 768)
@@ -107,16 +119,12 @@ class PADModel(nn.Module):
         self.register_buffer(
             "mean", torch.tensor(DEFAULT_IMAGENET_MEAN).view(1, 3, 1, 1)
         )
-        self.register_buffer(
-            "std", torch.tensor(DEFAULT_IMAGENET_STD).view(1, 3, 1, 1)
-        )
+        self.register_buffer("std", torch.tensor(DEFAULT_IMAGENET_STD).view(1, 3, 1, 1))
 
     def _norm(self, img: torch.Tensor) -> torch.Tensor:
         return (img - self.mean.to(img.device)) / self.std.to(img.device)
 
-    def forward(
-        self, img: torch.Tensor, hf: torch.Tensor = None
-    ) -> dict:
+    def forward(self, img: torch.Tensor, hf: torch.Tensor = None) -> dict:
         """All heads in a single pass.
 
         img: (B,3,H,W) in [0,1]; hf: (B,1,H,W) high-frequency map.
@@ -124,8 +132,8 @@ class PADModel(nn.Module):
         """
         x = self._norm(img)
         feats = self.backbone.forward_features(x)  # (B, 1+N, D), post-norm
-        cls = feats[:, 0]                          # (B, D)
-        patch = feats[:, 1:]                       # (B, N, D)
+        cls = feats[:, 0]  # (B, D)
+        patch = feats[:, 1:]  # (B, N, D)
 
         if self.use_hf:
             hf_emb, hf_logit = self.hf_branch(hf)
@@ -145,7 +153,7 @@ class PADModel(nn.Module):
 
     def _depth_from_patch(self, patch: torch.Tensor) -> torch.Tensor:
         B, N, D = patch.shape
-        side = int(round(N ** 0.5))
+        side = int(round(N**0.5))
         tokens = patch.permute(0, 2, 1).reshape(B, D, side, side)
         return self.depth_head(tokens)  # (B, 1, depth_res, depth_res)
 

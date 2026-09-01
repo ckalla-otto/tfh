@@ -2,6 +2,7 @@
 
 Scoring convention: `scores_live` = sigmoid(binary logit) = P(bona-fide face).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -27,7 +28,11 @@ def predict_epoch(
     """
     model.eval()
     tta_cfg = cfg.get("eval", {}).get("tta", {})
-    use_flip = enable_tta and bool(tta_cfg.get("enabled", True)) and "flip" in tta_cfg.get("transforms", ["flip"])
+    use_flip = (
+        enable_tta
+        and bool(tta_cfg.get("enabled", True))
+        and "flip" in tta_cfg.get("transforms", ["flip"])
+    )
 
     scores, labels, stypes, envs, illum, keys = ([] for _ in range(6))
     depth_vars, hf_ens, spoof_pred = [], [], []
@@ -65,7 +70,8 @@ def predict_epoch(
         depth_vars.append(var.float().cpu().numpy())
         hf_ens.append(hf_energy(hf_in).float().cpu().numpy())
         spoof_pred.append(
-            sp.cpu().numpy() if sp is not None
+            sp.cpu().numpy()
+            if sp is not None
             else np.full(p.shape[0], -1, dtype=np.int64)
         )
 

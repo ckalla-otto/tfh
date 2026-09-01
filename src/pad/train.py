@@ -12,6 +12,7 @@ Pipeline:
 
 When the depth cache has not been generated yet, set depth.enabled=false.
 """
+
 from __future__ import annotations
 
 import math
@@ -63,11 +64,19 @@ def add_crop_columns(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
             c = (int(r["x1"]), int(r["y1"]), int(r["x2"]), int(r["y2"]))
         else:
             c = make_extended_crop_bbox(
-                w, h, float(r["x1"]), float(r["y1"]), float(r["x2"]), float(r["y2"]),
-                margin, min_side,
+                w,
+                h,
+                float(r["x1"]),
+                float(r["y1"]),
+                float(r["x2"]),
+                float(r["y2"]),
+                margin,
+                min_side,
             )
-        crop_x1.append(c[0]); crop_y1.append(c[1])
-        crop_x2.append(c[2]); crop_y2.append(c[3])
+        crop_x1.append(c[0])
+        crop_y1.append(c[1])
+        crop_x2.append(c[2])
+        crop_y2.append(c[3])
     df["crop_x1"], df["crop_y1"] = crop_x1, crop_y1
     df["crop_x2"], df["crop_y2"] = crop_x2, crop_y2
     df["face_x1"], df["face_y1"] = df["x1"], df["y1"]
@@ -102,13 +111,17 @@ def ensure_splits(cfg: dict, logger, rebuild: bool) -> dict:
     if rebuild or not all(f.exists() for f in needed):
         budget = cfg["data"]["subset"]["budget_total"]
         logger.info("Building stratified subset (budget=%d)...", budget)
-        crawl = read_crawl(cfg["data"]["crawl_meta"], cfg["data"].get("layout", "kaggle_csv"))
+        crawl = read_crawl(
+            cfg["data"]["crawl_meta"], cfg["data"].get("layout", "kaggle_csv")
+        )
         split_result = build_subset(
             crawl,
             budget_total=budget,
             split_fracs=tuple(cfg["data"]["subset"]["split"]),
             seed=cfg["data"]["subset"]["seed"],
-            secondary=cfg["data"]["subset"].get("secondary", ["environment", "illumination"]),
+            secondary=cfg["data"]["subset"].get(
+                "secondary", ["environment", "illumination"]
+            ),
         )
         for name in ("train", "val", "test"):
             df = add_crop_columns(split_result.splits[name], cfg)
@@ -140,10 +153,14 @@ def depth_guard_stats(pred: dict, cfg: dict) -> dict:
     }
     stats["ratio"] = (
         stats["var_estimated"] / max(stats["var_flat"], 1e-9)
-        if np.isfinite(stats["var_estimated"]) else float("nan")
+        if np.isfinite(stats["var_estimated"])
+        else float("nan")
     )
     stats["violated"] = bool(
-        (np.isfinite(stats["var_estimated"]) and stats["var_estimated"] < stats["min_live_variance"])
+        (
+            np.isfinite(stats["var_estimated"])
+            and stats["var_estimated"] < stats["min_live_variance"]
+        )
         or (np.isfinite(stats["ratio"]) and stats["ratio"] < stats["min_ratio"])
     )
     return stats
@@ -185,8 +202,10 @@ def run_training(
         cfg, splits, depth_cache=depth_cache, seed=cfg["data"]["subset"]["seed"]
     )
     logger.info(
-        "Data: train=%d val=%d test=%d", len(loaders["train"].dataset),
-        len(loaders["val"].dataset), len(loaders["test"].dataset),
+        "Data: train=%d val=%d test=%d",
+        len(loaders["train"].dataset),
+        len(loaders["val"].dataset),
+        len(loaders["test"].dataset),
     )
 
     model = build_model(cfg).to(device)
@@ -198,7 +217,10 @@ def run_training(
     head_params = [p for p in model.parameters() if id(p) not in backbone_ids]
     optim = torch.optim.AdamW(
         [
-            {"params": model.backbone.parameters(), "lr": float(cfg["train"]["lr_backbone"])},
+            {
+                "params": model.backbone.parameters(),
+                "lr": float(cfg["train"]["lr_backbone"]),
+            },
             {"params": head_params, "lr": float(cfg["train"]["lr_head"])},
         ],
         weight_decay=float(cfg["train"]["weight_decay"]),
@@ -263,9 +285,14 @@ def run_training(
             if log_every and (it + 1) % log_every == 0:
                 logger.info(
                     "ep %d it %d/%d total=%.4f bce=%.4f depth=%.4f hf=%.4f type=%.4f lr=%.1e",
-                    epoch, it + 1, len(loaders["train"]), losses["total"].item(),
-                    losses["bce"].item(), losses["depth"].item(),
-                    losses["hf_bce"].item(), losses["type_ce"].item(),
+                    epoch,
+                    it + 1,
+                    len(loaders["train"]),
+                    losses["total"].item(),
+                    losses["bce"].item(),
+                    losses["depth"].item(),
+                    losses["hf_bce"].item(),
+                    losses["type_ce"].item(),
                     optim.param_groups[0]["lr"],
                 )
         sched.step()
@@ -276,8 +303,15 @@ def run_training(
         logger.info(
             "ep %d | val ACER=%.4f APCER=%.4f BPCER=%.4f AUC=%.4f | "
             "guard var_est=%.4f var_flat=%.4f ratio=%.1f | %.1fs",
-            epoch, acer, val_res["val/APCER"], val_res["val/BPCER"], val_res["val/AUC"],
-            guard["var_estimated"], guard["var_flat"], guard["ratio"], time.time() - t0,
+            epoch,
+            acer,
+            val_res["val/APCER"],
+            val_res["val/BPCER"],
+            val_res["val/AUC"],
+            guard["var_estimated"],
+            guard["var_flat"],
+            guard["ratio"],
+            time.time() - t0,
         )
 
         torch.save({"model": model.state_dict(), "epoch": epoch}, last_ckpt)
@@ -295,8 +329,12 @@ def run_training(
             logger.warning(
                 "Depth-guard VIOLATION streak %d/%d: var_est=%.4f ratio=%.2f "
                 "(min_var=%.3f min_ratio=%.1f).",
-                guard_streak, guard_patience, guard["var_estimated"], guard["ratio"],
-                guard["min_live_variance"], guard["min_ratio"],
+                guard_streak,
+                guard_patience,
+                guard["var_estimated"],
+                guard["ratio"],
+                guard["min_live_variance"],
+                guard["min_ratio"],
             )
             if guard_streak >= guard_patience:
                 raise RuntimeError(
@@ -316,8 +354,13 @@ def run_training(
     from .evaluate import evaluate_split_and_report
 
     result = evaluate_split_and_report(
-        model, loaders["test"], cfg, device, out_dir,
-        enable_tta=True, threshold=best_threshold,
+        model,
+        loaders["test"],
+        cfg,
+        device,
+        out_dir,
+        enable_tta=True,
+        threshold=best_threshold,
     )
     result["best_val"] = {"acer": best_acer, "epoch": best_epoch}
     save_json(result, str(out_dir / "test_metrics.json"))
@@ -338,8 +381,13 @@ def main(
     if crawl:
         cfg["data"]["crawl_meta"] = crawl
     cfg["out_dir"] = str(Path(cfg["out_dir"]))
-    run_training(cfg, run_name=run_name, rebuild_splits=rebuild_splits,
-                 epochs=epochs, device=device)
+    run_training(
+        cfg,
+        run_name=run_name,
+        rebuild_splits=rebuild_splits,
+        epochs=epochs,
+        device=device,
+    )
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 """Dataset, augmentation, high-frequency maps, and stratified samplers."""
+
 from __future__ import annotations
 
 import random
@@ -179,9 +180,13 @@ class PADDataset(Dataset):
         if self.augment:
             sr = self.aug_cfg.get("scale_range", 0.0)
             scale = 1.0 + random.uniform(-sr, sr)
-            crop = F.center_crop(F.resize(crop, (int(size * scale), int(size * scale))), size)
+            crop = F.center_crop(
+                F.resize(crop, (int(size * scale), int(size * scale))), size
+            )
             if self.aug_cfg.get("rotate_deg", 0.0) > 0:
-                angle = random.uniform(-self.aug_cfg["rotate_deg"], self.aug_cfg["rotate_deg"])
+                angle = random.uniform(
+                    -self.aug_cfg["rotate_deg"], self.aug_cfg["rotate_deg"]
+                )
                 crop = F.rotate(crop, angle, interpolation=F.InterpolationMode.BILINEAR)
         elif crop.size != (size, size):
             crop = F.resize(crop, (size, size))
@@ -193,7 +198,9 @@ class PADDataset(Dataset):
                     F.resize(fmask_t, (int(size * scale), int(size * scale))), size
                 )
             if angle != 0.0:
-                fmask_t = F.rotate(fmask_t, angle, interpolation=F.InterpolationMode.NEAREST)
+                fmask_t = F.rotate(
+                    fmask_t, angle, interpolation=F.InterpolationMode.NEAREST
+                )
         else:
             fmask_t = F.resize(fmask_t, (size, size))
 
@@ -205,7 +212,9 @@ class PADDataset(Dataset):
             if random.random() < self.aug_cfg.get("grayscale_prob", 0.0):
                 img = F.rgb_to_grayscale(img, num_output_channels=3)
             if random.random() < self.aug_cfg.get("blur_prob", 0.0):
-                img = F.gaussian_blur(img, kernel_size=[5, 5], sigma=self.aug_cfg.get("blur_sigma", 2.0))
+                img = F.gaussian_blur(
+                    img, kernel_size=[5, 5], sigma=self.aug_cfg.get("blur_sigma", 2.0)
+                )
             j = self.aug_cfg.get("color_jitter", 0.0)
             if j > 0:
                 img = F.adjust_brightness(img, 1.0 + random.uniform(-j, j))
@@ -225,21 +234,29 @@ class PADDataset(Dataset):
         if depth_full is None:
             depth_full = np.full((size, size), self.flat_value, dtype=np.float32)
         else:
-            depth_full = np.array(
-                Image.fromarray((np.clip(depth_full, 0, 1) * 255).astype(np.uint8)).resize(
-                    (size, size), Image.BILINEAR
-                )
-            ).astype(np.float32) / 255.0
+            depth_full = (
+                np.array(
+                    Image.fromarray(
+                        (np.clip(depth_full, 0, 1) * 255).astype(np.uint8)
+                    ).resize((size, size), Image.BILINEAR)
+                ).astype(np.float32)
+                / 255.0
+            )
         depth_t = torch.from_numpy(depth_full)
         # align depth with the geometric transforms used on the image
         if self.augment:
             if scale != 1.0:
                 depth_t = F.center_crop(
-                    F.resize(depth_t.unsqueeze(0), (int(size * scale), int(size * scale))), size
+                    F.resize(
+                        depth_t.unsqueeze(0), (int(size * scale), int(size * scale))
+                    ),
+                    size,
                 )[0]
             if angle != 0.0:
                 depth_t = F.rotate(
-                    depth_t.unsqueeze(0), angle, interpolation=F.InterpolationMode.NEAREST
+                    depth_t.unsqueeze(0),
+                    angle,
+                    interpolation=F.InterpolationMode.NEAREST,
                 )[0]
         if flip_applied:
             depth_t = F.hflip(depth_t.unsqueeze(0))[0]
@@ -305,8 +322,17 @@ class StratifiedBatchSampler(Sampler):
 def pad_collate(batch: List[dict]) -> dict:
     """Default collate that stacks the tensor keys and keeps `key` as a list."""
     out: dict = {"keys": [b["key"] for b in batch]}
-    for k in ("img", "hf", "depth", "depth_mask", "label",
-              "spoof_type", "environment", "illumination", "is_estimated"):
+    for k in (
+        "img",
+        "hf",
+        "depth",
+        "depth_mask",
+        "label",
+        "spoof_type",
+        "environment",
+        "illumination",
+        "is_estimated",
+    ):
         out[k] = torch.stack([b[k] for b in batch], dim=0)
     return out
 
@@ -327,20 +353,30 @@ def build_loaders(
     samplers = {}
     for name in splits.keys():
         ds = PADDataset(
-            splits[name], cfg, split=name, augment=(name == "train"),
+            splits[name],
+            cfg,
+            split=name,
+            augment=(name == "train"),
             depth_cache=depth_cache,
         )
         if name == "train":
             sam = StratifiedBatchSampler(ds._stype, bs, seed=seed)
             loaders[name] = DataLoader(
-                ds, batch_sampler=sam, num_workers=workers,
-                collate_fn=pad_collate, pin_memory=False,
+                ds,
+                batch_sampler=sam,
+                num_workers=workers,
+                collate_fn=pad_collate,
+                pin_memory=False,
             )
         else:
             sam = None
             loaders[name] = DataLoader(
-                ds, batch_size=bs, shuffle=False, num_workers=workers,
-                collate_fn=pad_collate, pin_memory=False,
+                ds,
+                batch_size=bs,
+                shuffle=False,
+                num_workers=workers,
+                collate_fn=pad_collate,
+                pin_memory=False,
             )
         samplers[name] = sam
     return loaders, samplers

@@ -1,4 +1,5 @@
 """Unit tests for the stratified identity-exclusive split logic (split.py)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -13,7 +14,9 @@ from pad.split import (
 )
 
 
-def _synthetic_crawl(n_classes=10, n_subjects=60, images_per_subject_per_class=3) -> pd.DataFrame:
+def _synthetic_crawl(
+    n_classes=10, n_subjects=60, images_per_subject_per_class=3
+) -> pd.DataFrame:
     """Small synthetic crawl mirroring the Celeba-Spoof annotation layout.
 
     Each subject owns images across ALL classes (like the real dataset), so a
@@ -36,7 +39,10 @@ def _synthetic_crawl(n_classes=10, n_subjects=60, images_per_subject_per_class=3
                         "is_live": int(cls == 0),
                         "environment": env,
                         "illumination": illum,
-                        "x1": 10, "y1": 20, "x2": 110, "y2": 140,
+                        "x1": 10,
+                        "y1": 20,
+                        "x2": 110,
+                        "y2": 140,
                     }
                 )
                 idx += 1
@@ -99,7 +105,9 @@ def test_build_report_detects_overlap():
     res = build_subset(crawl, budget_total=300, seed=1)
     # inject a subject overlap between train and test
     bad = {s: df.copy() for s, df in res.splits.items()}
-    bad["test"].loc[bad["test"].index[0], "subject_id"] = bad["train"].iloc[0]["subject_id"]
+    bad["test"].loc[bad["test"].index[0], "subject_id"] = bad["train"].iloc[0][
+        "subject_id"
+    ]
     report, _ = build_report(bad)
     assert "subject overlap" in report
     assert "RESULT: FAIL" in report
@@ -111,7 +119,10 @@ def test_read_crawl_normalization():
             "Path": ["/a.jpg", "/b.jpg"],
             "Subject": ["s0", "s1"],
             "Type": [0, 2],
-            "X1": [10, 0], "Y1": [20, 0], "X2": [110, 30], "Y2": [140, 40],
+            "X1": [10, 0],
+            "Y1": [20, 0],
+            "X2": [110, 30],
+            "Y2": [140, 40],
         }
     )
     df.to_csv("/tmp/_test_crawl.csv", index=False)
@@ -125,7 +136,9 @@ def test_read_crawl_normalization():
 def test_budget_below_min_pool_caps_equality():
     # only 10 subjects -> few images per class pool; budget of 900 cannot be met,
     # but per-class equality within each split must still hold.
-    crawl = _synthetic_crawl(n_classes=10, n_subjects=10, images_per_subject_per_class=4)
+    crawl = _synthetic_crawl(
+        n_classes=10, n_subjects=10, images_per_subject_per_class=4
+    )
     res = build_subset(crawl, budget_total=900, seed=3)
     for name, df in res.splits.items():
         assert df.groupby("spoof_type").size().nunique() == 1

@@ -16,6 +16,7 @@ complete mirror).
 Usage (Fire):
   uv run python -m pad make_crawl --root data/raw/celeba-spoof --out data/crawl.csv
 """
+
 from __future__ import annotations
 
 import json
@@ -31,7 +32,14 @@ from .split import _ensure_columns
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 # Kaggle mirrors almost always ship one of these metadata tables at the root;
 # `spoof.csv` / `data.csv` are the single-table names used by several mirrors.
-META_CSV_NAMES = ("train.csv", "test.csv", "val.csv", "metadata.csv", "spoof.csv", "data.csv")
+META_CSV_NAMES = (
+    "train.csv",
+    "test.csv",
+    "val.csv",
+    "metadata.csv",
+    "spoof.csv",
+    "data.csv",
+)
 _IMAGE_COL = "image"
 
 # Official Celeba-Spoof folder-name -> spoof-type index (0 = live).
@@ -217,8 +225,12 @@ def _official_walk(root: Path, include_unknown: bool):
             d = {
                 "spoof_type": idx if idx is not None else 999,
                 "live": (1 if idx == 0 else 0) if idx is not None else None,
-                "x1": bb[0], "y1": bb[1], "x2": bb[2], "y2": bb[3],
-                "environment": 0, "illumination": 0,
+                "x1": bb[0],
+                "y1": bb[1],
+                "x2": bb[2],
+                "y2": bb[3],
+                "environment": 0,
+                "illumination": 0,
             }
             # preserve the split + subject so the manifest is usable downstream
             d["_split"] = parsed["split"]
@@ -288,7 +300,10 @@ def build_crawl_from_file_list(
                 "is_live": int(st == 0),
                 "environment": env,
                 "illumination": illum,
-                "x1": 0.0, "y1": 0.0, "x2": 0.0, "y2": 0.0,
+                "x1": 0.0,
+                "y1": 0.0,
+                "x2": 0.0,
+                "y2": 0.0,
             }
         )
     if not records:
@@ -306,8 +321,10 @@ def build_crawl_from_file_list(
     _log_file_list_crawl(df, labels_provided=labels_csv is not None)
     if labels_csv:
         n_unmatched = int(df["spoof_type"].eq(999).sum())
-        print(f"  label join: {n_joined}/{len(df)} images matched {labels_csv}; "
-              f"{n_unmatched} kept as 999 (unknown attack type)")
+        print(
+            f"  label join: {n_joined}/{len(df)} images matched {labels_csv}; "
+            f"{n_unmatched} kept as 999 (unknown attack type)"
+        )
     return df
 
 
@@ -320,19 +337,27 @@ def _log_file_list_crawl(df: pd.DataFrame, labels_provided: bool = False) -> Non
     n_unknown = int(counts.get(999, 0))
     frac_unknown = n_unknown / max(len(df), 1)
     print(f"  crawled {len(df)} images from file list")
-    print("  per-class:", ", ".join(f"{k}={v} ({100*v/total:.1f}%)" for k, v in rows.items()))
+    print(
+        "  per-class:",
+        ", ".join(f"{k}={v} ({100 * v / total:.1f}%)" for k, v in rows.items()),
+    )
     if frac_unknown > (0.1 if labels_provided else 0.0):
         print(
-            f"  WARNING: {n_unknown} images ({100*frac_unknown:.0f}%) have "
+            f"  WARNING: {n_unknown} images ({100 * frac_unknown:.0f}%) have "
             "UNKNOWN attack type (folder `spoof/`)."
-            + ("" if labels_provided else
-               " This mirror only distinguishes live vs spoof — the 10-way spoof "
-               "type is NOT available from the file listing; pass --labels <csv> "
-               "to join the official annotations.")
+            + (
+                ""
+                if labels_provided
+                else " This mirror only distinguishes live vs spoof — the 10-way spoof "
+                "type is NOT available from the file listing; pass --labels <csv> "
+                "to join the official annotations."
+            )
         )
     elif n_unknown and labels_provided:
-        print(f"  note: {n_unknown} ({100*frac_unknown:.1f}%) images kept as 999 "
-              "(unknown attack type; not in the joined label table).")
+        print(
+            f"  note: {n_unknown} ({100 * frac_unknown:.1f}%) images kept as 999 "
+            "(unknown attack type; not in the joined label table)."
+        )
 
 
 def build_crawl(
@@ -411,8 +436,7 @@ def build_crawl(
     # ---- official-layout crawl: Data/<split>/<subject>/<class>/<img> + _BB.txt ----
     if layout == "official":
         records = [
-            _make_record(rel, d)
-            for rel, d in _official_walk(root, include_unknown)
+            _make_record(rel, d) for rel, d in _official_walk(root, include_unknown)
         ]
         if not records:
             raise RuntimeError(f"no images found in official layout under {root}")
@@ -500,9 +524,14 @@ def _log_crawl(df: pd.DataFrame, n_skip: int, n_json: int) -> None:
     counts = df["spoof_type"].value_counts().to_dict()
     rows = {IDX_TO_CLASS[i]: counts.get(i, 0) for i in range(len(IDX_TO_CLASS))}
     total = sum(rows.values()) or 1
-    print(f"  crawled {len(df)} images (JSON-sourced metadata: {n_json}; "
-          f"skipped-no-meta: {n_skip})")
-    print("  per-class:", ", ".join(f"{k}={v} ({100*v/total:.1f}%)" for k, v in rows.items()))
+    print(
+        f"  crawled {len(df)} images (JSON-sourced metadata: {n_json}; "
+        f"skipped-no-meta: {n_skip})"
+    )
+    print(
+        "  per-class:",
+        ", ".join(f"{k}={v} ({100 * v / total:.1f}%)" for k, v in rows.items()),
+    )
     n_unknown = int(df["spoof_type"].eq(999).sum())
     if n_unknown:
         print(f"  WARNING: {n_unknown} images have unknown spoof type (kept as 999).")
@@ -536,13 +565,18 @@ def main(
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     if from_file_list:
         _ = build_crawl_from_file_list(
-            from_file_list, out_csv=out, include_unknown=include_unknown,
+            from_file_list,
+            out_csv=out,
+            include_unknown=include_unknown,
             labels_csv=labels,
         )
     else:
         _ = build_crawl(
-            root, out_csv=out, include_unknown=include_unknown,
-            from_metadata=from_metadata, layout=layout,
+            root,
+            out_csv=out,
+            include_unknown=include_unknown,
+            from_metadata=from_metadata,
+            layout=layout,
         )
     print(f"crawl manifest written -> {out}")
 

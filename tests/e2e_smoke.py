@@ -3,6 +3,7 @@
 Creates tiny synthetic images so nothing about the real Kaggle mirror is required.
 Run:  PYTHONPATH=src ./.venv/bin/python tests/e2e_smoke.py
 """
+
 from __future__ import annotations
 
 import sys
@@ -29,16 +30,21 @@ def synthetic_crawl(tmp: Path, n_subjects=12) -> pd.DataFrame:
                 arr = np.random.randint(0, 255, (160, 160, 3), dtype=np.uint8)
                 f = tmp / "imgs" / f"{idx:05d}.jpg"
                 Image.fromarray(arr).save(f)
-                rows.append({
-                    "image_id": f"{idx:05d}",
-                    "image_path": str(f),
-                    "subject_id": subj,
-                    "spoof_type": cls,
-                    "is_live": int(cls == 0),
-                    "environment": im % 2,
-                    "illumination": (im * 7) % 4,
-                    "x1": 30, "y1": 40, "x2": 120, "y2": 150,
-                })
+                rows.append(
+                    {
+                        "image_id": f"{idx:05d}",
+                        "image_path": str(f),
+                        "subject_id": subj,
+                        "spoof_type": cls,
+                        "is_live": int(cls == 0),
+                        "environment": im % 2,
+                        "illumination": (im * 7) % 4,
+                        "x1": 30,
+                        "y1": 40,
+                        "x2": 120,
+                        "y2": 150,
+                    }
+                )
                 idx += 1
     return pd.DataFrame(rows)
 
@@ -55,7 +61,9 @@ def main() -> None:
     logger = get_logger()
     tmp = Path("/tmp/pad_smoke")
     if tmp.exists():
-        import shutil; shutil.rmtree(tmp)
+        import shutil
+
+        shutil.rmtree(tmp)
     tmp.mkdir(parents=True)
     cfg = load_config("configs/base.yaml", root=".")
     cfg["data"]["crawl_meta"] = str(tmp / "crawl.csv")
@@ -72,6 +80,7 @@ def main() -> None:
     crawl.to_csv(cfg["data"]["crawl_meta"], index=False)
 
     from pad.train import ensure_splits, add_crop_columns
+
     splits_df = ensure_splits(cfg, logger, rebuild=True)
     loaders, _ = build_loaders(cfg, splits_df, depth_cache=None, seed=42)
     for name, dl in loaders.items():
@@ -93,24 +102,33 @@ def main() -> None:
     tg = {k: v.to(device) for k, v in batch.items() if torch.is_tensor(v)}
     pred = model(img, hf)
     losses = loss_fn(pred, tg)
-    logger.info("losses: total=%.4f bce=%.4f depth=%.4f hf=%.4f type=%.4f",
-                losses["total"].item(), losses["bce"].item(), losses["depth"].item(),
-                losses["hf_bce"].item(), losses["type_ce"].item())
+    logger.info(
+        "losses: total=%.4f bce=%.4f depth=%.4f hf=%.4f type=%.4f",
+        losses["total"].item(),
+        losses["bce"].item(),
+        losses["depth"].item(),
+        losses["hf_bce"].item(),
+        losses["type_ce"].item(),
+    )
     assert torch.isfinite(losses["total"]), "non-finite loss"
 
     # one optimization step
     optim = torch.optim.AdamW(model.parameters(), lr=1e-4)
     losses["total"].backward()
-    optim.step(); optim.zero_grad()
+    optim.step()
+    optim.zero_grad()
     logger.info("single optim step OK")
 
     # eval pipeline on the test loader (TTA off for speed)
     model.eval()
     out_dir = Path(cfg["out_dir"]) / "smoke_eval"
-    result = evaluate_split_and_report(model, loaders["test"], cfg, device,
-                                       out_dir, enable_tta=False)
-    print("METRICS:", {k: round(v, 4) for k, v in result["metrics"].items()
-                       if isinstance(v, float)})
+    result = evaluate_split_and_report(
+        model, loaders["test"], cfg, device, out_dir, enable_tta=False
+    )
+    print(
+        "METRICS:",
+        {k: round(v, 4) for k, v in result["metrics"].items() if isinstance(v, float)},
+    )
     assert (out_dir / "per_type.csv").exists()
     assert (out_dir / "hard_samples.csv").exists()
     assert (out_dir / "hard_samples_report.md").exists()

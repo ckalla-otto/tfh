@@ -10,6 +10,7 @@ Design (locked in the plan):
 
 This module avoids torch on purpose -> unit-testable without a heavy stack.
 """
+
 from __future__ import annotations
 
 import json
@@ -236,7 +237,9 @@ def _stratified_sample(
         if rem > 0:
             have = set(pd.concat(pieces).index)
             leftovers = assigned.loc[~assigned.index.isin(have)]
-            pieces.append(leftovers.sample(n=min(rem, len(leftovers)), random_state=rng))
+            pieces.append(
+                leftovers.sample(n=min(rem, len(leftovers)), random_state=rng)
+            )
         assigned = pd.concat(pieces)
 
     if len(assigned) != k:

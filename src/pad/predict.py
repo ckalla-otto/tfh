@@ -17,6 +17,7 @@ If no --bbox is given the full image is center-cropped/resized to the model
 input size. The model was TRAINED on extended face crops; for best results pass
 a face bounding box (or crop the face region first).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -64,7 +65,9 @@ def _hf_map(img_t: torch.Tensor, sigma: float = 3.0, kernel: int = 7) -> torch.T
 
 
 @torch.no_grad()
-def _predict_one(model, img_t: torch.Tensor, hf_t: torch.Tensor, use_flip: bool) -> dict:
+def _predict_one(
+    model, img_t: torch.Tensor, hf_t: torch.Tensor, use_flip: bool
+) -> dict:
     """Single-batch forward with optional flip TTA -> P(live), depth, spoof_type."""
     model.eval()
     out = model(img_t, hf_t)
@@ -75,7 +78,11 @@ def _predict_one(model, img_t: torch.Tensor, hf_t: torch.Tensor, use_flip: bool)
         p_live = 0.5 * (p_live + torch.sigmoid(out_f["binary"]).float().cpu())
         dep = 0.5 * (dep + out_f["depth"].float().cpu())
     stype = int(out["spoof_type"].argmax(dim=1).item()) if "spoof_type" in out else None
-    return {"live_prob": float(p_live.item()), "depth": dep.numpy()[0, 0], "spoof_type": stype}
+    return {
+        "live_prob": float(p_live.item()),
+        "depth": dep.numpy()[0, 0],
+        "spoof_type": stype,
+    }
 
 
 def predict_image(
@@ -103,7 +110,9 @@ def predict_image(
 
     model = build_model(cfg)
     ck = torch.load(ckpt, map_location="cpu")
-    model.load_state_dict({k: v for k, v in ck["model"].items() if k in model.state_dict()})
+    model.load_state_dict(
+        {k: v for k, v in ck["model"].items() if k in model.state_dict()}
+    )
     model.to(dev)
     model.eval()
     logger.info("loaded checkpoint: %s", ckpt)
@@ -119,11 +128,15 @@ def predict_image(
         n_bbox = detect_face_bbox(img)
         used_auto_face = n_bbox is not None
         if n_bbox is None:
-            logger.warning("no face detected by InsightFace; falling back to full-image center crop")
+            logger.warning(
+                "no face detected by InsightFace; falling back to full-image center crop"
+            )
     crop = _prepare_crop(img, n_bbox, size, margin)
     tta_cfg = cfg.get("eval", {}).get("tta", {})
-    use_flip = (not no_tta) and bool(tta_cfg.get("enabled", True)) and "flip" in tta_cfg.get(
-        "transforms", ["flip"]
+    use_flip = (
+        (not no_tta)
+        and bool(tta_cfg.get("enabled", True))
+        and "flip" in tta_cfg.get("transforms", ["flip"])
     )
 
     img_t = F.to_tensor(crop).unsqueeze(0).to(dev)
@@ -146,7 +159,10 @@ def predict_image(
     }
     logger.info(
         "P(live)=%.4f P(spoof)=%.4f | type=%s | decision=%s",
-        out["live_prob"], out["spoof_prob"], st_name, decision,
+        out["live_prob"],
+        out["spoof_prob"],
+        st_name,
+        decision,
     )
     return out
 
@@ -162,15 +178,23 @@ def main(
 ) -> None:
     """Predict a single image from the CLI (Fire). Prints live/spoof + probs."""
     res = predict_image(
-        image_path=image_path, ckpt=ckpt, config=config,
-        bbox=bbox, no_tta=no_tta, device=device, auto_face=auto_face,
+        image_path=image_path,
+        ckpt=ckpt,
+        config=config,
+        bbox=bbox,
+        no_tta=no_tta,
+        device=device,
+        auto_face=auto_face,
     )
     print(f"image            : {image_path}")
     print(f"live probability : {res['live_prob']:.4f}")
     print(f"spoof probability: {res['spoof_prob']:.4f}")
     st_name = res["spoof_type_name"]
-    print(f"spoof type       : {st_name} (idx {res['spoof_type']})" if res["spoof_type"] is not None
-          else "spoof type       : n/a")
+    print(
+        f"spoof type       : {st_name} (idx {res['spoof_type']})"
+        if res["spoof_type"] is not None
+        else "spoof type       : n/a"
+    )
     print(f"decision         : {res['decision']}")
     if res["bbox"] is not None:
         kind = "auto-detected" if res["auto_face"] else "given"

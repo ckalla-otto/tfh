@@ -1,4 +1,5 @@
 """Shared helpers: config loading, seeding, device resolution, PAD metrics."""
+
 from __future__ import annotations
 
 import json
@@ -69,7 +70,9 @@ def get_logger(
 ) -> logging.Logger:
     logger = logging.getLogger(name)
     logger.setLevel(level)
-    fmt = logging.Formatter("%(asctime)s | %(levelname)-8s | %(message)s", "%Y-%m-%d %H:%M:%S")
+    fmt = logging.Formatter(
+        "%(asctime)s | %(levelname)-8s | %(message)s", "%Y-%m-%d %H:%M:%S"
+    )
     if not logger.handlers:
         sh = logging.StreamHandler(sys.stdout)
         sh.setFormatter(fmt)

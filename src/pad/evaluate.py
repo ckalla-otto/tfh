@@ -4,6 +4,7 @@ and per-class hard-sample reports (both CLI and library entry points).
   python -m pad.evaluate --config configs/exp_smoke.yaml \
       --ckpt results/run/best.pt --split test
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -36,7 +37,7 @@ def per_type_df(pred: dict, threshold: float) -> pd.DataFrame:
         if cls == 0:  # live
             error = float(np.mean(scores <= threshold))  # BPCER contribution
         else:
-            error = float(np.mean(scores > threshold))   # APCER contribution
+            error = float(np.mean(scores > threshold))  # APCER contribution
         rows.append(
             {
                 "spoof_type": IDX_TO_CLASS[cls],
@@ -87,8 +88,17 @@ def hard_samples_markdown(hard: pd.DataFrame, threshold: float) -> str:
         part = hard[hard["spoof_type"] == cls].sort_values("boundary_dist")
         lines.append(f"## {IDX_TO_CLASS[cls]} ({len(part)})")
         if len(part):
-            show = part[["image_id", "true_label", "score_live",
-                         "boundary_dist", "spoof_pred", "env", "illum"]]
+            show = part[
+                [
+                    "image_id",
+                    "true_label",
+                    "score_live",
+                    "boundary_dist",
+                    "spoof_pred",
+                    "env",
+                    "illum",
+                ]
+            ]
             try:
                 lines.append(show.to_markdown(index=False))
             except ImportError:
@@ -122,8 +132,15 @@ def make_confusion(pred: dict, out_dir: Path) -> None:
     fig.colorbar(im, ax=ax)
     for i in range(len(SPOOF_TYPES)):
         for j in range(len(SPOOF_TYPES)):
-            ax.text(j, i, int(cm[i, j]), ha="center", va="center",
-                    color="white" if cm[i, j] > cm.max() / 2 else "black", fontsize=8)
+            ax.text(
+                j,
+                i,
+                int(cm[i, j]),
+                ha="center",
+                va="center",
+                color="white" if cm[i, j] > cm.max() / 2 else "black",
+                fontsize=8,
+            )
     fig.tight_layout()
     fig.savefig(out_dir / "confusion.png", dpi=150)
     plt.close(fig)
@@ -170,7 +187,11 @@ def evaluate_split_and_report(
     }
     logger.info(
         "split eval | ACER=%.4f APCER=%.4f BPCER=%.4f AUC=%.4f thr=%.4f",
-        met["ACER"], met["APCER"], met["BPCER"], met["AUC"], threshold,
+        met["ACER"],
+        met["APCER"],
+        met["BPCER"],
+        met["AUC"],
+        threshold,
     )
     logger.info(
         "artifacts -> %s/{per_type.csv, hard_samples*.csv|md, confusion.*}", out_dir
@@ -198,10 +219,10 @@ def main(
 
     from .data import build_loaders
 
-    splits = {
-        split: pd.read_csv(Path(cfg["data"]["subsets_dir"]) / f"{split}.csv")
-    }
-    depth_cache = cfg["depth"].get("cache_dir") if cfg["depth"].get("enabled", True) else None
+    splits = {split: pd.read_csv(Path(cfg["data"]["subsets_dir"]) / f"{split}.csv")}
+    depth_cache = (
+        cfg["depth"].get("cache_dir") if cfg["depth"].get("enabled", True) else None
+    )
     loaders, _ = build_loaders(cfg, splits, depth_cache=depth_cache, seed=0)
 
     from .model import build_model

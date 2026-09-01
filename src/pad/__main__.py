@@ -8,6 +8,7 @@ With PYTHONPATH=src (or after `pip install -e .`), you can run:
 
 All subcommands delegate to the Fire-based `main()` of the corresponding module.
 """
+
 from __future__ import annotations
 
 import fire

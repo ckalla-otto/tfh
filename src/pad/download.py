@@ -19,6 +19,7 @@ parallelized and resume-safe. For the official layout (`--official`), each
 image's sibling `<img>_BB.txt` is fetched and the bboxes are patched into the
 subset CSVs afterwards.
 """
+
 from __future__ import annotations
 
 import os
@@ -54,7 +55,14 @@ def _iter_file_pages(
     token = start_token
     pages = 0
     while max_pages is None or pages < max_pages:
-        cmd = _kaggle_cmd() + ["datasets", "files", "-d", slug, "--page-size", str(page_size)]
+        cmd = _kaggle_cmd() + [
+            "datasets",
+            "files",
+            "-d",
+            slug,
+            "--page-size",
+            str(page_size),
+        ]
         if token:
             cmd += ["--page-token", token]
         out = subprocess.run(cmd, check=True, capture_output=True, text=True)
@@ -136,7 +144,9 @@ def fetch_dataset_files_resumable(
     total = len(seen)
     with open(out, mode) as f:
         for items, nxt in _iter_file_pages(
-            slug, page_size=page_size, start_token=token,
+            slug,
+            page_size=page_size,
+            start_token=token,
             max_pages=max_pages if max_pages else None,
         ):
             added = 0
@@ -149,7 +159,10 @@ def fetch_dataset_files_resumable(
             total += added
             f.flush()
             _save_resume_token(out, nxt)
-            print(f"  ... {total} files so far (page added {len(items)}, new {added})", flush=True)
+            print(
+                f"  ... {total} files so far (page added {len(items)}, new {added})",
+                flush=True,
+            )
             if not nxt:
                 _save_resume_token(out, None)  # naturally complete -> no resume needed
                 return total
@@ -179,7 +192,10 @@ def _place_downloaded(out_dir: Path, rel: str) -> bool:
             return False
 
     # zip candidates (single-file endpoint) — basename.zip or full-path.zip
-    for zpath in (base.with_suffix(base.suffix + ".zip"), base.with_name(os.path.basename(rel) + ".zip")):
+    for zpath in (
+        base.with_suffix(base.suffix + ".zip"),
+        base.with_name(os.path.basename(rel) + ".zip"),
+    ):
         if not (zpath.exists() and zpath.stat().st_size > 0):
             continue
         try:
@@ -189,7 +205,7 @@ def _place_downloaded(out_dir: Path, rel: str) -> bool:
                 match = next((n for n in names if os.path.basename(n) == want), None)
                 if match is None:
                     continue
-                zf.extract(match, out_dir)   # lands at out_dir/<match>
+                zf.extract(match, out_dir)  # lands at out_dir/<match>
                 tmp = out_dir / match
                 if tmp.exists() and tmp.stat().st_size > 0:
                     target.parent.mkdir(parents=True, exist_ok=True)
@@ -224,14 +240,23 @@ def _download_one(
         return (rel, True, "exists")
 
     cmd = _kaggle_cmd() + [
-        "datasets", "download", "-d", slug, "-f", rel, "-p", str(out_dir), "-q",
+        "datasets",
+        "download",
+        "-d",
+        slug,
+        "-f",
+        rel,
+        "-p",
+        str(out_dir),
+        "-q",
     ]
     last_err = "unknown"
     wait = backoff_s
     for attempt in range(retries + 1):
         try:
-            subprocess.run(cmd, check=True, capture_output=True, timeout=600,
-                           env=os.environ.copy())
+            subprocess.run(
+                cmd, check=True, capture_output=True, timeout=600, env=os.environ.copy()
+            )
             if _place_downloaded(out_dir, rel):
                 if official:
                     _maybe_fetch_bb(slug, rel, out_dir)
@@ -252,11 +277,20 @@ def _maybe_fetch_bb(slug: str, rel: str, out_dir: Path) -> None:
     if _place_downloaded(out_dir, bb_rel):
         return
     cmd = _kaggle_cmd() + [
-        "datasets", "download", "-d", slug, "-f", bb_rel, "-p", str(out_dir), "-q",
+        "datasets",
+        "download",
+        "-d",
+        slug,
+        "-f",
+        bb_rel,
+        "-p",
+        str(out_dir),
+        "-q",
     ]
     try:
-        subprocess.run(cmd, check=True, capture_output=True, timeout=120,
-                       env=os.environ.copy())
+        subprocess.run(
+            cmd, check=True, capture_output=True, timeout=120, env=os.environ.copy()
+        )
     except Exception:
         return
     _place_downloaded(out_dir, bb_rel)
@@ -286,13 +320,18 @@ def _patch_bboxes_from_bb_txt(subset_dir: Path, out_dir: Path) -> None:
                     toks = bb_file.read_text().strip().split()
                     if len(toks) >= 4:
                         x, y, w, h = (float(v) for v in toks[:4])
-                        x1s.append(x); y1s.append(y)
-                        x2s.append(x + w); y2s.append(y + h)
+                        x1s.append(x)
+                        y1s.append(y)
+                        x2s.append(x + w)
+                        y2s.append(y + h)
                         n_bb += 1
                         continue
                 except Exception:
                     pass
-            x1s.append(0.0); y1s.append(0.0); x2s.append(0.0); y2s.append(0.0)
+            x1s.append(0.0)
+            y1s.append(0.0)
+            x2s.append(0.0)
+            y2s.append(0.0)
         df["x1"], df["y1"], df["x2"], df["y2"] = x1s, y1s, x2s, y2s
         # the dataset reads face_x*/face_y* columns; keep them in sync
         if "face_x1" in df.columns:
@@ -314,8 +353,10 @@ def _collect_rels(subset_dir: Path) -> set:
         if "rel_path" in df.columns:
             rels.update(df["rel_path"].dropna().astype(str))
         else:
-            print(f"  NOTE: {f} lacks rel_path column — re-run with a make_crawl "
-                  f"generated subset (metadata-only crawl adds it).")
+            print(
+                f"  NOTE: {f} lacks rel_path column — re-run with a make_crawl "
+                f"generated subset (metadata-only crawl adds it)."
+            )
     return rels
 
 
@@ -385,7 +426,9 @@ def main(
         names = {n for n, _s in fetch_dataset_files(slug, page_size=page_size)}
         missing = sorted(r for r in rels if r not in names)
         print(f"  dataset file-list entries: {len(names)}")
-        print(f"  subset paths present in mirror: {len(rels) - len(missing)}/{len(rels)}")
+        print(
+            f"  subset paths present in mirror: {len(rels) - len(missing)}/{len(rels)}"
+        )
         for m in missing[:20]:
             print("   MISSING in mirror:", m)
         if missing:
