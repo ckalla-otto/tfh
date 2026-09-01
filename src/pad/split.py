@@ -125,8 +125,24 @@ def read_crawl(path: Union[str, Path], layout: str = "kaggle_csv") -> pd.DataFra
         df["image_id"] = df.index.astype(str)
 
     bb = df[["x1", "y1", "x2", "y2"]].astype(float)
-    if (bb["x2"] <= bb["x1"]).any() or (bb["y2"] <= bb["y1"]).any():
-        raise ValueError("Invalid face bbox in crawl manifest (x2<=x1 or y2<y1).")
+    # A file-list crawl has bboxes still at 0 (patched later by download_subset
+    # --official from the per-image _BB.txt), so tolerate all-zero bboxes; only
+    # flag bboxes that are partially filled but actually malformed.
+    if (bb != 0).any().any():
+        if (bb["x2"] <= bb["x1"]).any() or (bb["y2"] <= bb["y1"]).any():
+            bad = (bb["x2"] <= bb["x1"]) | (bb["y2"] <= bb["y1"])
+            n_bad = int(bad.sum())
+            if n_bad == len(df):
+                raise ValueError(
+                    "Invalid face bbox in crawl manifest: ALL rows have x2<=x1 or "
+                    "y2<=y1. If this came from a file-list crawl, bboxes are filled "
+                    "in later by `download_subset --official` (from _BB.txt); if "
+                    "that already ran, the _BB.txt format may differ."
+                )
+            raise ValueError(
+                f"Invalid face bbox in crawl manifest: {n_bad}/{len(df)} rows have "
+                "x2<=x1 or y2<=y1 (non-zero bbox but malformed)."
+            )
     return df
 
 
