@@ -278,6 +278,7 @@ class PADDataset(Dataset):
             "illumination": torch.tensor([illum], dtype=torch.long),
             "is_estimated": torch.tensor([float(is_est)]),
             "key": self._keys[idx],
+            "path": self._paths[idx],
         }
 
 
@@ -334,6 +335,7 @@ def pad_collate(batch: List[dict]) -> dict:
         "is_estimated",
     ):
         out[k] = torch.stack([b[k] for b in batch], dim=0)
+    out["path"] = [b["path"] for b in batch]
     return out
 
 

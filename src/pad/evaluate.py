@@ -56,6 +56,7 @@ def _hard_samples(pred: dict, threshold: float, top_k: int) -> pd.DataFrame:
     df = pd.DataFrame(
         {
             "image_id": pred["keys"],
+            "image_path": pred["path"],
             "spoof_type": pred["spoof_type"],
             "true_label": pred["labels"],
             "score_live": pred["scores_live"],
@@ -80,12 +81,20 @@ def hard_samples_markdown(hard: pd.DataFrame, threshold: float) -> str:
     lines = [
         f"# Per-class hard samples (boundary = P(live) = {threshold:.4f})",
         "",
-        "`boundary_dist` is |score - threshold|; the smallest value per class is",
-        "the hardest-to-decide sample.",
+        "Within each class, rows are ordered by `score_live` (the P(live) output):",
+        "spoof classes list the highest spoofer P(live) first (closest to / most confidently",
+        "mistaken for live); the `live` class lists the lowest P(live) first (live most",
+        "mistaken for spoof). `boundary_dist = |score_live - threshold|`; the smallest",
+        "value per class is the hardest-to-decide sample.",
         "",
     ]
     for cls in range(len(SPOOF_TYPES)):
-        part = hard[hard["spoof_type"] == cls].sort_values("boundary_dist")
+        part = hard[hard["spoof_type"] == cls]
+        # Most-deceptive first: spoof -> highest P(live); live -> lowest P(live).
+        if cls == 0:
+            part = part.sort_values("score_live", ascending=True)
+        else:
+            part = part.sort_values("score_live", ascending=False)
         lines.append(f"## {IDX_TO_CLASS[cls]} ({len(part)})")
         if len(part):
             show = part[
@@ -103,8 +112,74 @@ def hard_samples_markdown(hard: pd.DataFrame, threshold: float) -> str:
                 lines.append(show.to_markdown(index=False))
             except ImportError:
                 lines.append(show.to_string(index=False))
+            lines.append(
+                f"![{IDX_TO_CLASS[cls]} top hard samples](hard_visuals/{IDX_TO_CLASS[cls]}.png)"
+            )
         lines.append("")
     return "\n".join(lines)
+
+
+def make_hard_visuals(
+    hard: pd.DataFrame, out_dir: Path, top_n: int = 5, thresh_size: int = 224
+) -> None:
+    """Render per-class grids of the top-N hardest images with their P(live) score.
+
+    For each spoof class the most-deceptive samples (highest P(live)) are shown
+    first; for the live class the lowest P(live) (most mistaken for spoof) come
+    first. Each tile is annotated with its P(live) and predicted/true class, and
+    the grids are written under ``out_dir/hard_visuals/<class>.png``.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from PIL import Image
+
+    vis_dir = out_dir / "hard_visuals"
+    vis_dir.mkdir(parents=True, exist_ok=True)
+
+    ncols = min(top_n, 5)
+    nrows = 1
+    # 2 rows only if we ever exceed 5; top_n is capped at 5 so single row.
+    for cls in range(len(SPOOF_TYPES)):
+        part = hard[hard["spoof_type"] == cls].head(top_n)
+        if len(part) == 0:
+            continue
+        is_live = cls == 0
+        # match the markdown order (most-deceptive first)
+        part = part.sort_values("score_live", ascending=is_live).head(top_n)
+
+        fig, axes = plt.subplots(nrows, ncols, figsize=(3.6 * ncols, 3.6 * nrows))
+        axes = axes if isinstance(axes, np.ndarray) else np.array([axes])
+        for ax, (_, row) in zip(axes.flat, part.iterrows()):
+            try:
+                img = Image.open(row["image_path"]).convert("RGB")
+                img = img.resize((thresh_size, thresh_size), Image.BILINEAR)
+                ax.imshow(img)
+            except OSError:
+                ax.text(
+                    0.5,
+                    0.5,
+                    "missing",
+                    ha="center",
+                    va="center",
+                    transform=ax.transAxes,
+                )
+            color = "lime" if row["true_label"] == 1 else "crimson"
+            ax.set_title(
+                f"P(live)={row['score_live']:.3f}\ntrue={'live' if row['true_label'] == 1 else 'spoof'} "
+                f"pred={IDX_TO_CLASS[int(row['spoof_pred'])] if row['spoof_pred'] >= 0 else 'n/a'}",
+                fontsize=9,
+                color=color,
+            )
+            ax.set_xticks([])
+            ax.set_yticks([])
+        for ax in axes.flat[len(part) :]:
+            ax.axis("off")
+        fig.suptitle(f"{IDX_TO_CLASS[cls]} — top {len(part)} hardest", fontsize=13)
+        fig.tight_layout(rect=[0, 0, 1, 0.93])
+        fig.savefig(vis_dir / f"{IDX_TO_CLASS[cls]}.png", dpi=150)
+        plt.close(fig)
 
 
 def make_confusion(pred: dict, out_dir: Path) -> None:
@@ -146,6 +221,86 @@ def make_confusion(pred: dict, out_dir: Path) -> None:
     plt.close(fig)
 
 
+def make_det_curve(pred: dict, out_dir: Path, threshold: float, auc: float) -> None:
+    """DET curve: APCER (spoof→live misclass) vs BPCER (live→spoof misclass).
+
+    Sweeps the P(live) threshold over every observed score value and plots the
+    two error rates against each other on a log scale (ISO 30107-3 convention),
+    marking the operating point used elsewhere. Also writes the raw curve
+    points and the underlying per-sample scores/labels so the plot can be
+    regenerated or extended later.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    scores = np.asarray(pred["scores_live"], dtype=np.float64)
+    labels = np.asarray(pred["labels"], dtype=int)
+    live = labels == 1
+    spoof = labels == 0
+
+    # On a DET plot the x-axis is BPCER (live rejected as spoof) and the y-axis
+    # is APCER (spoof accepted as live). At each candidate threshold t, a sample
+    # is declared "live" iff score > t.
+    n_live = int(live.sum())
+    n_spoof = int(spoof.sum())
+    uniq = np.unique(scores)
+    n_live_ok = (scores[live][:, None] > uniq[None, :]).sum(axis=0)
+    n_spoof_wrong = (scores[spoof][:, None] > uniq[None, :]).sum(axis=0)
+    bpcer = np.where(n_live > 0, 1.0 - n_live_ok / max(n_live, 1), np.nan)
+    apcer = np.where(n_spoof > 0, n_spoof_wrong / max(n_spoof, 1), np.nan)
+    fin = np.isfinite(bpcer) & np.isfinite(apcer)
+    bpcer, apcer, uniq = bpcer[fin], apcer[fin], uniq[fin]
+
+    # Protect log-scale axes against exact 0 error rates.
+    eps = 1e-3
+    bp_plot = np.clip(bpcer, eps, 1.0)
+    ap_plot = np.clip(apcer, eps, 1.0)
+    op_idx = int(np.argmin(np.abs(uniq - threshold)))
+
+    fig, ax = plt.subplots(figsize=(7, 7))
+    ax.plot(bp_plot, ap_plot, "-o", markersize=3, lw=1.5, label="DET curve")
+    ax.plot(
+        [bp_plot[op_idx]],
+        [ap_plot[op_idx]],
+        "rs",
+        ms=8,
+        label=f"operating point (BPCER={bpcer[op_idx]:.3f}, APCER={apcer[op_idx]:.3f})",
+    )
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlim(eps, 1.0)
+    ax.set_ylim(eps, 1.0)
+    ax.set_xlabel("BPCER (live rejected as spoof)")
+    ax.set_ylabel("APCER (spoof accepted as live)")
+    ax.set_title(f"DET curve  |  AUC={auc:.4f}  (n_live={n_live}, n_spoof={n_spoof})")
+    ax.grid(True, which="both", ls="--", alpha=0.4)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(out_dir / "det_curve.png", dpi=150)
+    plt.close(fig)
+
+    pd.DataFrame(
+        {
+            "threshold": uniq,
+            "BPCER": bpcer,
+            "APCER": apcer,
+        }
+    ).to_csv(out_dir / "det_curve.csv", index=False)
+    np.savez(
+        out_dir / "pred.npz",
+        scores_live=scores,
+        labels=labels,
+        spoof_type=pred["spoof_type"],
+        env=pred["env"],
+        illum=pred["illum"],
+        depth_var=pred["depth_var"],
+        hf_energy=pred["hf_energy"],
+        threshold=threshold,
+    )
+
+
 def evaluate_split_and_report(
     model,
     loader,
@@ -174,8 +329,11 @@ def evaluate_split_and_report(
 
     make_confusion(pred, out_dir)
 
+    make_det_curve(pred, out_dir, threshold, met["AUC"])
+
     hs = _hard_samples(pred, threshold, int(cfg["eval"]["hard_samples"]["top_k"]))
     hs.to_csv(out_dir / "hard_samples.csv", index=False)
+    make_hard_visuals(hs, out_dir, top_n=5)
     (out_dir / "hard_samples_report.md").write_text(
         hard_samples_markdown(hs, threshold)
     )
@@ -194,7 +352,8 @@ def evaluate_split_and_report(
         threshold,
     )
     logger.info(
-        "artifacts -> %s/{per_type.csv, hard_samples*.csv|md, confusion.*}", out_dir
+        "artifacts -> %s/{per_type.csv, hard_samples*.csv|md, confusion.*, det_curve.*, pred.npz}",
+        out_dir,
     )
     return result
 
@@ -220,8 +379,10 @@ def main(
     from .data import build_loaders
 
     splits = {split: pd.read_csv(Path(cfg["data"]["subsets_dir"]) / f"{split}.csv")}
+    use_depth = bool(cfg.get("model", {}).get("use_depth_head", False))
+    depth_enabled = bool(cfg["depth"].get("enabled", True))
     depth_cache = (
-        cfg["depth"].get("cache_dir") if cfg["depth"].get("enabled", True) else None
+        cfg["depth"].get("cache_dir") if (use_depth and depth_enabled) else None
     )
     loaders, _ = build_loaders(cfg, splits, depth_cache=depth_cache, seed=0)
 

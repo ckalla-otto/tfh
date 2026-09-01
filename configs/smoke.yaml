@@ -1,0 +1,20 @@
+# Local smoke-test config: small subsampled subsets already staged under
+# data/subsets_smoke (1000/200/200), short run, no depth head/cache needed.
+include: [base.yaml]
+
+data:
+  subsets_dir: data/subsets_smoke
+  subset:
+    budget_total: 1400
+
+depth:
+  enabled: false         # use_depth_head=false -> no depth cache required
+
+model:
+  use_depth_head: false  # default first-shot model (no Depth-Anything cache)
+
+train:
+  epochs: 3
+  batch_size: 24         # per-class balanced -> actual batch floor(24/10)*10 = 20
+  log_every: 5
+  workers: 4

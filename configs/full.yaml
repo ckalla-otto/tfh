@@ -1,0 +1,7 @@
+# Full-20k run wrapper: default base config with a larger per-class-balanced batch.
+# batch_size 64 -> StratifiedBatchSampler n_per = 64//10 = 6 -> actual batch 60.
+include: [base.yaml]
+
+train:
+  batch_size: 64
+  workers: 4

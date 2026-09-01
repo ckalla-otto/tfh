@@ -35,7 +35,7 @@ def predict_epoch(
     )
 
     scores, labels, stypes, envs, illum, keys = ([] for _ in range(6))
-    depth_vars, hf_ens, spoof_pred = [], [], []
+    depth_vars, hf_ens, spoof_pred, paths = [], [], [], []
     depth_res = int(cfg.get("model", {}).get("depth_res", 112))
     use_depth = bool(cfg.get("model", {}).get("use_depth_head", False))
 
@@ -81,6 +81,7 @@ def predict_epoch(
             if sp is not None
             else np.full(p.shape[0], -1, dtype=np.int64)
         )
+        paths.extend(batch["path"])
 
     return {
         "scores_live": np.concatenate(scores),
@@ -89,6 +90,7 @@ def predict_epoch(
         "env": np.concatenate(envs),
         "illum": np.concatenate(illum),
         "keys": keys,
+        "path": paths,
         "depth_var": np.concatenate(depth_vars),
         "hf_energy": np.concatenate(hf_ens),
         "spoof_pred": np.concatenate(spoof_pred),
