@@ -37,7 +37,8 @@ depth:
   # pseudo-depth targets: ESTIMATED classes get Depth-Anything depth (face region),
   # FLAT classes get a constant zero plane (also face region).
   estimator: dav2-small                 # dav2-small | dav2-base | midas | none
-  dav2_model_id: depth-anything/Depth-Anything-V2-Small
+  # transformers-compatible checkpoint (the non-hf repo is weights-only):
+  dav2_model_id: depth-anything/Depth-Anything-V2-Small-hf
   cache_dir: data/caches/depth_v2_small # per-image .npz {depth: (224,224) [0,1], mask: (224,224)}
   flat_value: 0.0                       # target value on face region for FLAT classes
   normalize_mode: relative_face         # divide by face-region max before clamping to [0,1]

@@ -25,6 +25,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -205,9 +206,18 @@ def _place_downloaded(out_dir: Path, rel: str) -> bool:
 
 
 def _download_one(
-    slug: str, rel: str, out_dir: Path, official: bool = False
+    slug: str,
+    rel: str,
+    out_dir: Path,
+    official: bool = False,
+    retries: int = 4,
+    backoff_s: float = 1.5,
 ) -> Tuple[str, bool, str]:
-    """Download a single file (plus its `_BB.txt` companion in official mode)."""
+    """Download a single file (+ `_BB.txt` companion in official mode).
+
+    Retries transient Kaggle rate-limit/connection errors with exponential
+    backoff (default 4 retries, 1.5x growth). Returns (rel, ok, msg).
+    """
     target = out_dir / rel
     if target.exists() and target.stat().st_size > 0:
         _maybe_fetch_bb(slug, rel, out_dir)
@@ -216,17 +226,24 @@ def _download_one(
     cmd = _kaggle_cmd() + [
         "datasets", "download", "-d", slug, "-f", rel, "-p", str(out_dir), "-q",
     ]
-    try:
-        subprocess.run(cmd, check=True, capture_output=True, timeout=600,
-                       env=os.environ.copy())
-    except Exception as e:  # noqa: BLE001
-        return (rel, False, f"kaggle call failed: {e}")
-
-    if _place_downloaded(out_dir, rel):
-        if official:
-            _maybe_fetch_bb(slug, rel, out_dir)
-        return (rel, True, "downloaded")
-    return (rel, False, "file missing after download")
+    last_err = "unknown"
+    wait = backoff_s
+    for attempt in range(retries + 1):
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, timeout=600,
+                           env=os.environ.copy())
+            if _place_downloaded(out_dir, rel):
+                if official:
+                    _maybe_fetch_bb(slug, rel, out_dir)
+                return (rel, True, "downloaded")
+            last_err = "file missing after download"
+            break  # non-transient: file genuinely absent
+        except Exception as e:  # noqa: BLE001  (rate-limit / connection refused)
+            last_err = f"kaggle call failed: {e}"
+            if attempt < retries:
+                time.sleep(wait)
+                wait *= 1.5
+    return (rel, False, last_err)
 
 
 def _maybe_fetch_bb(slug: str, rel: str, out_dir: Path) -> None:
@@ -322,7 +339,8 @@ def main(
     subset_dir: str = "data/subsets",
     out_dir: str = "data/images",
     slug: str = None,
-    workers: int = 8,
+    workers: int = 4,
+    retries: int = 6,
     check_only: bool = False,
     official: bool = False,
     fetch_files: bool = False,
