@@ -230,3 +230,7 @@ results/
 .venv/
 .uv/
 uv.lock
+
+data/subsets_pilot/
+data/subset_pilot/
+results/dev_pilot/
