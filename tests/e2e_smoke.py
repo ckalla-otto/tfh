@@ -66,7 +66,6 @@ def main() -> None:
         shutil.rmtree(tmp)
     tmp.mkdir(parents=True)
     cfg = load_config("configs/base.yaml", root=".")
-    cfg["data"]["crawl_meta"] = str(tmp / "crawl.csv")
     cfg["data"]["subsets_dir"] = str(tmp / "subsets")
     cfg["model"]["backbone"] = "vit_small_patch14_dinov2"  # fast CPU smoke
     cfg["data"]["subset"]["budget_total"] = 480
@@ -77,11 +76,23 @@ def main() -> None:
     cfg["out_dir"] = str(tmp / "results")
 
     crawl = synthetic_crawl(tmp)
-    crawl.to_csv(cfg["data"]["crawl_meta"], index=False)
 
-    from pad.train import ensure_splits, add_crop_columns
+    from pad.prepare import _add_crop_columns
+    from pad.split import build_subset
 
-    splits_df = ensure_splits(cfg, logger, rebuild=True)
+    split_result = build_subset(
+        crawl,
+        budget_total=cfg["data"]["subset"]["budget_total"],
+        split_fracs=tuple(cfg["data"]["subset"]["split"]),
+        seed=cfg["data"]["subset"]["seed"],
+        secondary=cfg["data"]["subset"].get(
+            "secondary", ["environment", "illumination"]
+        ),
+    )
+    splits_df = {
+        name: _add_crop_columns(split_result.splits[name], cfg)
+        for name in ("train", "val", "test")
+    }
     loaders, _ = build_loaders(cfg, splits_df, depth_cache=None, seed=42)
     for name, dl in loaders.items():
         logger.info("%s loader: %d samples, %d batches", name, len(dl.dataset), len(dl))

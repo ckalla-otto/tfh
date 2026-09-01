@@ -46,7 +46,9 @@ def load_splits(cfg: dict) -> dict:
     Raises if they are missing — run `uv run python -m pad prepare ...` first.
     """
     subsets_dir = Path(cfg["data"]["subsets_dir"])
-    missing = [s for s in ("train", "val", "test") if not (subsets_dir / f"{s}.csv").exists()]
+    missing = [
+        s for s in ("train", "val", "test") if not (subsets_dir / f"{s}.csv").exists()
+    ]
     if missing:
         raise FileNotFoundError(
             f"Missing subset CSVs for {missing} under {subsets_dir}. "

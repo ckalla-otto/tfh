@@ -20,6 +20,7 @@ Usage (Fire):
   uv run python -m pad prepare --data-root /Users/christiankalla/Downloads/CelebA_Spoof \
       --labels data/labels/label.csv --config configs/base.yaml
 """
+
 from __future__ import annotations
 
 import os
@@ -112,7 +113,10 @@ def build_manifest(
                         "is_live": 0,
                         "environment": 0,
                         "illumination": 0,
-                        "x1": bb[0], "y1": bb[1], "x2": bb[2], "y2": bb[3],
+                        "x1": bb[0],
+                        "y1": bb[1],
+                        "x2": bb[2],
+                        "y2": bb[3],
                     }
                     if labels is not None and rel in labels.index:
                         row = labels.loc[rel]
@@ -161,11 +165,19 @@ def _add_crop_columns(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
             w = max(int(float(r["x2"])), int(float(r["y2"])), 1) + 10
             h = w
         c = make_extended_crop_bbox(
-            w, h, float(r["x1"]), float(r["y1"]), float(r["x2"]), float(r["y2"]),
-            margin, min_side,
+            w,
+            h,
+            float(r["x1"]),
+            float(r["y1"]),
+            float(r["x2"]),
+            float(r["y2"]),
+            margin,
+            min_side,
         )
-        crop_x1.append(c[0]); crop_y1.append(c[1])
-        crop_x2.append(c[2]); crop_y2.append(c[3])
+        crop_x1.append(c[0])
+        crop_y1.append(c[1])
+        crop_x2.append(c[2])
+        crop_y2.append(c[3])
     df["crop_x1"], df["crop_y1"] = crop_x1, crop_y1
     df["crop_x2"], df["crop_y2"] = crop_x2, crop_y2
     df["face_x1"], df["face_y1"] = df["x1"], df["y1"]
@@ -189,8 +201,10 @@ def main(
             "data": {
                 "crop": {"margin_factor": 1.3, "min_side": 64},
                 "subset": {
-                    "budget_total": 24000, "split": [0.70, 0.15, 0.15],
-                    "seed": 42, "secondary": ["environment", "illumination"],
+                    "budget_total": 24000,
+                    "split": [0.70, 0.15, 0.15],
+                    "seed": 42,
+                    "secondary": ["environment", "illumination"],
                 },
             }
         }
@@ -198,11 +212,14 @@ def main(
     logger = get_logger()
 
     manifest = build_manifest(
-        data_root=data_root, labels_csv=labels,
-        out_csv=out_manifest, include_unknown=include_unknown,
+        data_root=data_root,
+        labels_csv=labels,
+        out_csv=out_manifest,
+        include_unknown=include_unknown,
     )
     logger.info(
-        "manifest: %d images, per-type=%s", len(manifest),
+        "manifest: %d images, per-type=%s",
+        len(manifest),
         manifest["spoof_type"].value_counts().sort_index().to_dict(),
     )
 
@@ -211,7 +228,9 @@ def main(
         budget_total=cfg["data"]["subset"]["budget_total"],
         split_fracs=tuple(cfg["data"]["subset"]["split"]),
         seed=cfg["data"]["subset"]["seed"],
-        secondary=cfg["data"]["subset"].get("secondary", ["environment", "illumination"]),
+        secondary=cfg["data"]["subset"].get(
+            "secondary", ["environment", "illumination"]
+        ),
     )
     out_dir = Path(subsets_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -222,7 +241,8 @@ def main(
 
     logger.info("subset report -> %s/balance_report.md", out_dir)
     logger.info(
-        "sizes: %s", {s: len(split_result.splits[s]) for s in ("train", "val", "test")},
+        "sizes: %s",
+        {s: len(split_result.splits[s]) for s in ("train", "val", "test")},
     )
     if "RESULT: FAIL" in split_result.report:
         raise RuntimeError("subset verification FAILED - see balance_report.md")
