@@ -23,97 +23,63 @@ breakdown, confusion matrix, and per-class **hard-sample reports**.
 uv venv --python 3.13
 uv sync --extra dev
 
-# 1. download ONLY the metadata tables from the mirror (no images yet)
-mkdir -p data/raw/celeba-spoof data/subset
-for f in train.csv test.csv val.csv metadata.csv; do
-  uv run kaggle datasets download -d "$PAD_DATASET_SLUG" -f "$f" -p data/raw/celeba-spoof
-done
+# 1. prepare train/val/test from the on-disk mirror + the official labels
+#    (data-root = folder containing Data/{train,test}/<subject>/{live,spoof}/<img>)
+uv run python -m pad prepare \
+    --data-root /Users/christiankalla/Downloads/CelebA_Spoof \
+    --labels data/labels/label.csv \
+    --config configs/base.yaml
+cat data/subsets/balance_report.md      # verify RESULT: PASS
 
-# 2. crawl the metadata -> normalized manifest (no image files needed)
-uv run python -m pad make_crawl --root data/raw/celeba-spoof --out data/crawl.csv --from-metadata true
-
-# 3. stratify + sample the subset (equal per spoof-type, identity-exclusive)
-uv run python -m pad make_splits --config configs/base.yaml
-
-# 4. download ONLY the sampled images
-uv run python -m pad download_subset --subset-dir data/subsets --out-dir data/subset --slug "$PAD_DATASET_SLUG"
-
-# 5. (optional) pseudo-depth cache
+# 2. (optional) pseudo-depth cache for the estimated classes (live + 3D masks)
 uv run python -m pad depth_targets --config configs/base.yaml --splits "train val test"
 
-# 6. train + evaluate
+# 3. train + evaluate
 uv run python -m pad train --config configs/base.yaml --run-name smoke
 uv run python -m pad evaluate --config configs/base.yaml --ckpt results/smoke/best.pt --split test
 
-# 7. predict a single image with a probability
+# 4. predict a single image with a probability
 uv run python -m pad predict --image_path path/to/img.jpg --ckpt results/smoke/best.pt
 uv run python -m pad predict --image_path img.jpg --ckpt best.pt --bbox "10 20 260 300"
 ```
 
 All CLIs use **Google Fire** (no argparse): flags are just keyword arguments
-(`--config`, `--run-name`, `--rebuild-splits`, `--no-tta`, ...). The
-module-level forms (`uv run python -m pad.train`, `python -m pad.evaluate`, ...)
-work identically.
+(`--config`, `--run-name`, `--no-tta`, ...). The module-level forms
+(`uv run python -m pad.train`, `python -m pad.evaluate`, ...) work identically.
 
 When running from inside the activated venv, drop the `uv run` prefix
 (`python -m pad train ...`).
 
-## Crawling the dataset (and downloading only the subset, via the Kaggle API)
+## Preparing the dataset (`pad prepare`)
 
-This flow uses **only the Kaggle API** — no full-archive download. Verified
-end-to-end against the official-layout mirror
-`attentionlayer241/celeba-spoof-for-face-antispoofing`.
+Assumes the mirror is already downloaded to disk:
 
-```bash
-# 1. credentials (gitignored). The Python CLIs auto-load this via python-dotenv,
-#    so no `source` and no `$PAD_DATASET_SLUG` shell expansion is needed:
-cp .env.example .env   # = KAGGLE_USERNAME, KAGGLE_KEY, PAD_DATASET_SLUG
-
-# 2. dump the mirror's file listing (paths only — cheap, paginated)
-#    Writes each page to data/mirror_files.txt immediately and keeps a resume
-#    token (data/mirror_files.txt.listing_token); re-running continues where it
-#    left off instead of restarting. Just re-run this same command to resume.
-uv run python -m pad download_subset --fetch-files --files-out data/mirror_files.txt
-
-# 3. build the manifest from that listing (no images on disk yet).
-#    IMPORTANT: the mirror's folder structure only distinguishes `live/` vs
-#    `spoof/`. To recover the TRUE 10-way attack type, download the official
-#    annotation table and join it:
-#      kaggle datasets download -d tungnguyentien/celeba-spoof-crop-1-9 \
-#          -f 'CelebA_Spoof_crop_1_9/data_1.0_128/label.csv' -p data/labels
-#    (label.csv is indexed by `split/subject/class/<img>`; column 40 = spoof
-#    type 0-9, 41 = illumination, 42 = environment.)
-uv run python -m pad make_crawl --from-file-list data/mirror_files.txt \
-    --out data/crawl.csv --labels data/labels/label.csv
-
-# 4. stratified, identity-exclusive subset (per spoof-type equal) + balance report
-uv run python -m pad make_splits --config configs/base.yaml
-cat data/subsets/balance_report.md     # verify RESULT: PASS
-
-# 5. download exactly those images + their _BB.txt bboxes (official layout),
-#    then re-links subset CSVs and patches x1..y2 in them
-uv run python -m pad download_subset --subset-dir data/subsets \
-    --out-dir data/subset --official --workers 8
-
-# 6. (optional) dry check that every sampled path exists in the mirror
-uv run python -m pad download_subset ... --check-only
+```
+<data-root>/Data/{train,test}/<subject>/{live,spoof}/<img>.png|jpg
+<data-root>/Data/{train,test}/<subject>/{live,spoof}/<img>_BB.txt   # bbox x y w h [conf]
 ```
 
-> Tip: the full listing is ~1.25M entries (about 45 min at the API's hard 200/page
-> cap). It's **resume-safe** — run it in the background, and if it's interrupted
-> just re-run the same `--fetch-files` command; it continues from the saved token.
-- The official-layout mirror stores labels in the **folder structure**
-  (`Data/<split>/<subject>/<class>/<img>.png`) and bboxes in sibling
-  `<img>_BB.txt` (`x y w h [conf]`) — `make_crawl --from-file-list` parses the
-  paths, and `download_subset --official` fetches + patches the bboxes.
-- After `download_subset`, don't re-run `make_splits` (it would re-point
-  `image_path` back to the empty mirror root); re-run `download_subset` to
-  re-link instead.
+and the official annotation table at `data/labels/label.csv` (indexed by
+`split/subject/class/<img>`; column 40 = spoof type 0–9, 41 = illumination,
+42 = environment). The official `label.csv` can be obtained from the Kaggle
+dataset `tungnguyentien/celeba-spoof-crop-1-9`.
 
-**Alternative (whole-archive) flow:** if a mirror packs everything into one
-zip (no per-file access), use `bash scripts/download_data.sh` to download +
-unzip once, then `make_crawl --root data/raw/celeba-spoof --layout official`
-+ `make_splits` from the on-disk mirror.
+What `pad prepare` does:
+
+1. **Walks all images** under `Data/` — the official `train/` and `test/`
+   folders are **pooled together** (the folder names are arbitrary download
+   parts; this lets the missing attack classes in `train/` be covered by
+   `test/`).
+2. **Reads each bbox** from the sibling `<img>_BB.txt` (`x y w h`).
+3. **Joins `label.csv`** → true `spoof_type` (0–9), `environment`,
+   `illumination`; images without a valid label (or bbox) are dropped unless
+   `--include-unknown`.
+4. **Builds a stratified, identity-exclusive 70/15/15 subset** with equal
+   per-spoof-type counts; writes `data/subsets/{train,val,test}.csv` +
+   `balance_report.md` (fails loudly on any invariant violation).
+
+Re-run `pad prepare` with a different `--subsets-dir` / config to change the
+budget or seed (e.g. `configs/exp_smoke.yaml` for a quick pilot).
 
 ## Repo layout
 
@@ -121,16 +87,17 @@ unzip once, then `make_crawl --root data/raw/celeba-spoof --layout official`
 tfh/
 ├── configs/              # base.yaml (+ include-merging experiment configs)
 ├── docs/architecture.md
-├── scripts/              # download_data.sh, setup_gpu_vm.sh, rsync_data.sh
 ├── src/pad/
+│   ├── prepare.py        # build train/val/test from on-disk data + label.csv
 │   ├── split.py          # equal-per-spoof-type, identity-exclusive subsetting
 │   ├── data.py           # dataset, extended crop, face masks, HF maps, aug, samplers
 │   ├── depth_targets.py  # offline Depth-Anything pseudo-depth cache
 │   ├── model.py          # DINOv2 + HF branch + heads
 │   ├── losses.py         # BCE + Smooth-L1(depth) + BCE(hf) + CE(spoof-type)
 │   ├── inference.py      # shared scoring (used by train + evaluate)
-│   ├── train.py          # T4 training loop (AMP, guard, early stop)
-│   └── evaluate.py       # metrics, per-type, confusion, hard samples
+│   ├── train.py          # training loop (AMP, guard, early stop)
+│   ├── evaluate.py       # metrics, per-type, confusion, hard samples
+│   └── predict.py        # single-image live/spoof probability (+ depth diagnostic)
 ├── tests/test_split.py   # stratification invariants
 └── data/ results/        # gitignored
 ```
@@ -193,8 +160,8 @@ Conventions:
 
 ## Dev notes
 
-- Dev happens on macOS (CPU/MPS). Training runs on the **T4 VM** (CUDA); see
-  `scripts/setup_gpu_vm.sh` + `scripts/rsync_data.sh`.
+- Dev happens on macOS (CPU/MPS). Training runs wherever a GPU is available
+  (`train` auto-uses CUDA, else MPS/CPU).
 - The HF map is computed **on-the-fly after augmentation** (not cached) so the
   RGB and HF streams stay perfectly consistent under grayscale/geometric aug.
   The depth cache is the only offline artifact.

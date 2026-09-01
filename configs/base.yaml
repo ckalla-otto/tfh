@@ -5,10 +5,8 @@
 out_dir: results
 
 data:
-  root: data/raw/celeba-spoof          # unzipped Kaggle mirror
-  crawl_meta: data/crawl.csv            # optional: a full manifest built from the mirror
-  layout: kaggle_csv                    # kaggle_csv | celeba_json (see src/pad/split.py)
-  subsets_dir: data/subsets             # split CSVs + balance report
+  root: /Users/christiankalla/Downloads/CelebA_Spoof   # on-disk mirror (Data/{train,test}/...)
+  subsets_dir: data/subsets             # split CSVs + balance report (produced by `pad prepare`)
 
   subset:
     mode: equal_per_spoof_type          # Live + 9 attacks -> 10 classes, equal k per class

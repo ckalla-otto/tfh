@@ -10,7 +10,6 @@ from pad.split import (
     SPOOF_TYPES,
     build_subset,
     build_report,
-    read_crawl,
 )
 
 
@@ -111,26 +110,6 @@ def test_build_report_detects_overlap():
     report, _ = build_report(bad)
     assert "subject overlap" in report
     assert "RESULT: FAIL" in report
-
-
-def test_read_crawl_normalization():
-    df = pd.DataFrame(
-        {
-            "Path": ["/a.jpg", "/b.jpg"],
-            "Subject": ["s0", "s1"],
-            "Type": [0, 2],
-            "X1": [10, 0],
-            "Y1": [20, 0],
-            "X2": [110, 30],
-            "Y2": [140, 40],
-        }
-    )
-    df.to_csv("/tmp/_test_crawl.csv", index=False)
-    out = read_crawl("/tmp/_test_crawl.csv", "kaggle_csv")
-    assert "image_path" in out.columns
-    assert "subject_id" in out.columns
-    assert out.loc[0, "is_live"] == 1
-    assert out.loc[1, "is_live"] == 0
 
 
 def test_budget_below_min_pool_caps_equality():

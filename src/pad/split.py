@@ -13,11 +13,9 @@ This module avoids torch on purpose -> unit-testable without a heavy stack.
 
 from __future__ import annotations
 
-import json
 import random
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -55,131 +53,19 @@ class SplitResult:
     per_class_counts: pd.DataFrame
 
 
-# Canonical column name -> accepted synonyms found in the mirror CSV / JSON.
-_COLUMN_SYNONYMS = {
-    "image_path": ["path", "image", "image_path", "file", "name", "img"],
-    "subject_id": ["subject", "subject_id", "subj", "person", "id"],
-    "spoof_type": ["spoof_type", "type", "attack_type", "cls", "label_type"],
-    "is_live": ["live", "is_live", "bona_fide"],
-    "environment": ["environment", "env", "env_id"],
-    "illumination": ["illumination", "illum", "light", "illum_id"],
-    "x1": ["x1", "x0", "left"],
-    "y1": ["y1", "y0", "top"],
-    "x2": ["x2", "x1", "right"],
-    "y2": ["y2", "y1", "bottom"],
-    "image_id": ["image_id", "img_id", "uuid"],
-}
-
-
-def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Rename (lower-cased, stripped) columns to canonical names."""
-    rename = {}
-    for col in df.columns:
-        low = str(col).strip().lower()
-        for canon, aliases in _COLUMN_SYNONYMS.items():
-            if low in aliases and canon not in rename.values():
-                rename[col] = canon
-                break
-    return df.rename(columns=rename)
-
-
 def _ensure_columns(df: pd.DataFrame) -> None:
     required = ["image_path", "subject_id", "spoof_type", "x1", "y1", "x2", "y2"]
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(
-            f"Missing required columns {missing} in the crawl manifest. "
+            f"Missing required columns {missing} in the manifest. "
             f"Available: {list(df.columns)}. "
-            "Adjust column names in _COLUMN_SYNONYMS for your mirror."
         )
-    if df["image_path"].astype(str).replace("", pd.NA).dropna().duplicated().any():
-        raise ValueError("Duplicate image_path entries in crawl manifest.")
+    nonempty = df["image_path"].astype(str).replace("", pd.NA).dropna()
+    if nonempty.duplicated().any():
+        raise ValueError("Duplicate image_path entries in manifest.")
     if df["subject_id"].isna().any():
         raise ValueError("NaN values in subject_id column.")
-
-
-def read_crawl(path: Union[str, Path], layout: str = "kaggle_csv") -> pd.DataFrame:
-    """Load + normalize the full crawl manifest (all images of the mirror)."""
-    path = Path(path)
-    if layout == "kaggle_csv":
-        if path.suffix == ".json":
-            df = pd.read_json(path)
-        else:
-            df = pd.read_csv(path)
-    elif layout == "celeba_json":
-        df = _read_celeba_json_mirror(path)
-    else:
-        raise ValueError(f"Unknown layout: {layout}")
-
-    df = _normalize_columns(df)
-    _ensure_columns(df)
-    df["spoof_type"] = df["spoof_type"].astype(int)
-    if "is_live" not in df.columns:
-        df["is_live"] = (df["spoof_type"] == 0).astype(int)
-    else:
-        df["is_live"] = df["is_live"].astype(int)
-    if "environment" not in df.columns:
-        df["environment"] = 0  # dummy (unknown) if the mirror lacks it
-    if "illumination" not in df.columns:
-        df["illumination"] = 0
-    if "image_id" not in df.columns:
-        df["image_id"] = df.index.astype(str)
-
-    bb = df[["x1", "y1", "x2", "y2"]].astype(float)
-    # A file-list crawl has bboxes still at 0 (patched later by download_subset
-    # --official from the per-image _BB.txt), so tolerate all-zero bboxes; only
-    # flag bboxes that are partially filled but actually malformed.
-    if (bb != 0).any().any():
-        if (bb["x2"] <= bb["x1"]).any() or (bb["y2"] <= bb["y1"]).any():
-            bad = (bb["x2"] <= bb["x1"]) | (bb["y2"] <= bb["y1"])
-            n_bad = int(bad.sum())
-            if n_bad == len(df):
-                raise ValueError(
-                    "Invalid face bbox in crawl manifest: ALL rows have x2<=x1 or "
-                    "y2<=y1. If this came from a file-list crawl, bboxes are filled "
-                    "in later by `download_subset --official` (from _BB.txt); if "
-                    "that already ran, the _BB.txt format may differ."
-                )
-            raise ValueError(
-                f"Invalid face bbox in crawl manifest: {n_bad}/{len(df)} rows have "
-                "x2<=x1 or y2<=y1 (non-zero bbox but malformed)."
-            )
-    return df
-
-
-def _read_celeba_json_mirror(root: Path) -> pd.DataFrame:
-    """Walk the official Celeba-Spoof folder/json layout.
-
-    Expected: <root>/<subject>/.../<img>.jpg plus .../Json/<img>.json.
-    Prefer the Kaggle CSV layout whenever in doubt.
-    """
-    records = []
-    for meta_f in sorted(root.rglob("**/*.json")):
-        try:
-            with open(meta_f, "r") as f:
-                d = json.load(f)
-        except Exception:
-            continue
-        img_id = str(d.get("image_id") or meta_f.stem)
-        parts = str(meta_f.relative_to(root)).replace("\\", "/").split("/")
-        subj = "/".join(parts[:3]) if len(parts) >= 4 else img_id
-        records.append(
-            {
-                "image_path": str(root / f"{img_id}.jpg"),
-                "image_id": img_id,
-                "subject_id": subj,
-                "spoof_type": int(d.get("spoof_type", 10)),
-                "environment": int(d.get("env", 0)),
-                "illumination": int(d.get("illum", 0)),
-                "x1": float(d["x1"]),
-                "y1": float(d["y1"]),
-                "x2": float(d["x2"]),
-                "y2": float(d["y2"]),
-            }
-        )
-    if not records:
-        raise FileNotFoundError(f"No JSON annotations under {root}")
-    return pd.DataFrame(records)
 
 
 def _split_subjects(

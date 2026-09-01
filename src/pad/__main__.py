@@ -13,17 +13,15 @@ from __future__ import annotations
 
 import fire
 
-from . import crawl, depth_targets, download, evaluate, predict, train
+from . import depth_targets, evaluate, predict, prepare, train
 
 if __name__ == "__main__":
     fire.Fire(
         {
+            "prepare": prepare.main,
             "train": train.main,
             "evaluate": evaluate.main,
             "depth_targets": depth_targets.main,
-            "make_crawl": crawl.main,
-            "make_splits": train.make_splits,
-            "download_subset": download.main,
             "predict": predict.main,
         }
     )

@@ -1,8 +1,9 @@
 # Smoke-test config: tiny equal-per-class budget, short run.
-# Usage: python -m pad.train --config configs/exp_smoke.yaml
+# Usage: python -m pad prepare --config configs/exp_smoke.yaml ...  (then train)
 include: [base.yaml]
 
 data:
+  subsets_dir: data/subsets_smoke
   subset:
     budget_total: 5000
 

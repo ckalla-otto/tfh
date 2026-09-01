@@ -24,11 +24,11 @@ import numpy as np
 import pandas as pd
 import torch
 
-from .data import build_loaders, make_extended_crop_bbox
+from .data import build_loaders
 from .inference import predict_epoch
 from .losses import PADLoss
 from .model import build_model
-from .split import ESTIMATED_CLASSES, IDX_TO_CLASS, build_subset, read_crawl
+from .split import ESTIMATED_CLASSES, IDX_TO_CLASS
 from .utils import (
     compute_pad_metrics,
     find_threshold,
@@ -40,100 +40,19 @@ from .utils import (
 )
 
 
-def add_crop_columns(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
-    """Add extended-crop + face bbox columns required by the dataset."""
-    margin = float(cfg["data"]["crop"]["margin_factor"])
-    min_side = int(cfg["data"]["crop"].get("min_side", 64))
-    mode = str(cfg["data"]["crop"]["mode"])
-    if "crop_x1" in df.columns:
-        return df
-    from PIL import Image
+def load_splits(cfg: dict) -> dict:
+    """Load the train/val/test subset CSVs produced by `pad prepare`.
 
-    crop_x1, crop_y1, crop_x2, crop_y2 = [], [], [], []
-    for _, r in df.iterrows():
-        try:
-            with Image.open(r["image_path"]) as im:
-                w, h = im.size
-        except Exception:
-            # image not downloaded yet (metadata-only crawl path): use a synthetic
-            # size derived from the bbox. These crop columns are informational —
-            # the dataset recomputes real crops at load time from the face bbox.
-            w = max(int(float(r["x2"])), int(float(r["y2"])), 1) + 10
-            h = w
-        if mode == "tight_bbox":
-            c = (int(r["x1"]), int(r["y1"]), int(r["x2"]), int(r["y2"]))
-        else:
-            c = make_extended_crop_bbox(
-                w,
-                h,
-                float(r["x1"]),
-                float(r["y1"]),
-                float(r["x2"]),
-                float(r["y2"]),
-                margin,
-                min_side,
-            )
-        crop_x1.append(c[0])
-        crop_y1.append(c[1])
-        crop_x2.append(c[2])
-        crop_y2.append(c[3])
-    df["crop_x1"], df["crop_y1"] = crop_x1, crop_y1
-    df["crop_x2"], df["crop_y2"] = crop_x2, crop_y2
-    df["face_x1"], df["face_y1"] = df["x1"], df["y1"]
-    df["face_x2"], df["face_y2"] = df["x2"], df["y2"]
-    return df
-
-
-def make_splits(config: str = "configs/exp_smoke.yaml", crawl: str = None) -> None:
-    """Build only the stratified subset CSVs + balance report (Fire CLI).
-
-    Uses the crawl manifest (data.crawl_meta, or --crawl to override) WITHOUT
-    needing images on disk, so you can sample the subset and then download only
-    those images.
+    Raises if they are missing — run `uv run python -m pad prepare ...` first.
     """
-    cfg = load_config(config)
-    if crawl:
-        cfg["data"]["crawl_meta"] = crawl
-    cfg["out_dir"] = str(Path(cfg["out_dir"]))
-    set_seed(cfg["data"]["subset"]["seed"])
-    logger = get_logger()
-    splits = ensure_splits(cfg, logger, rebuild=True)
-    logger.info("subsets ready under %s", cfg["data"]["subsets_dir"])
-    for s, df in splits.items():
-        logger.info("%s: %d images", s, len(df))
-
-
-def ensure_splits(cfg: dict, logger, rebuild: bool) -> dict:
-    """Build subset CSVs if missing (or forced) and return split DataFrames."""
     subsets_dir = Path(cfg["data"]["subsets_dir"])
-    subsets_dir.mkdir(parents=True, exist_ok=True)
-    needed = [subsets_dir / f"{s}.csv" for s in ("train", "val", "test")]
-    if rebuild or not all(f.exists() for f in needed):
-        budget = cfg["data"]["subset"]["budget_total"]
-        logger.info("Building stratified subset (budget=%d)...", budget)
-        crawl = read_crawl(
-            cfg["data"]["crawl_meta"], cfg["data"].get("layout", "kaggle_csv")
+    missing = [s for s in ("train", "val", "test") if not (subsets_dir / f"{s}.csv").exists()]
+    if missing:
+        raise FileNotFoundError(
+            f"Missing subset CSVs for {missing} under {subsets_dir}. "
+            "Run `uv run python -m pad prepare --data-root <your-data> "
+            "--labels data/labels/label.csv --config configs/base.yaml` first."
         )
-        split_result = build_subset(
-            crawl,
-            budget_total=budget,
-            split_fracs=tuple(cfg["data"]["subset"]["split"]),
-            seed=cfg["data"]["subset"]["seed"],
-            secondary=cfg["data"]["subset"].get(
-                "secondary", ["environment", "illumination"]
-            ),
-        )
-        for name in ("train", "val", "test"):
-            df = add_crop_columns(split_result.splits[name], cfg)
-            df.to_csv(subsets_dir / f"{name}.csv", index=False)
-        (subsets_dir / "balance_report.md").write_text(split_result.report)
-        logger.info("Subset report -> %s/balance_report.md", subsets_dir)
-        logger.info(
-            "Split sizes: %s",
-            {s: len(split_result.splits[s]) for s in ("train", "val", "test")},
-        )
-        if "RESULT: FAIL" in split_result.report:
-            raise RuntimeError("Subset verification FAILED — refusing to train.")
     return {s: pd.read_csv(subsets_dir / f"{s}.csv") for s in ("train", "val", "test")}
 
 
@@ -184,7 +103,6 @@ def eval_val(model, val_loader, cfg, device):
 def run_training(
     cfg: dict,
     run_name: str = "run",
-    rebuild_splits: bool = False,
     epochs: int = None,
     device: str = None,
 ) -> None:
@@ -195,7 +113,7 @@ def run_training(
     device = resolve_device(device)
     logger.info("Device: %s", device)
 
-    splits = ensure_splits(cfg, logger, rebuild=rebuild_splits)
+    splits = load_splits(cfg)
     depth_enabled = cfg["depth"].get("enabled", True)
     depth_cache = cfg["depth"].get("cache_dir") if depth_enabled else None
     loaders, samplers = build_loaders(
@@ -371,23 +289,13 @@ def run_training(
 def main(
     config: str = "configs/exp_smoke.yaml",
     run_name: str = "run",
-    rebuild_splits: bool = False,
     epochs: int = None,
     device: str = None,
-    crawl: str = None,
 ) -> None:
-    """Train the PAD model. Fire CLI: `python -m pad.train [flags]`."""
+    """Train the PAD model. Fire CLI: `python -m pad train [flags]`."""
     cfg = load_config(config)
-    if crawl:
-        cfg["data"]["crawl_meta"] = crawl
     cfg["out_dir"] = str(Path(cfg["out_dir"]))
-    run_training(
-        cfg,
-        run_name=run_name,
-        rebuild_splits=rebuild_splits,
-        epochs=epochs,
-        device=device,
-    )
+    run_training(cfg, run_name=run_name, epochs=epochs, device=device)
 
 
 if __name__ == "__main__":
