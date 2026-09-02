@@ -47,10 +47,13 @@ uv run python -m pad depth_targets --config configs/base.yaml --splits "train va
 # 4. train + evaluate
 uv run python -m pad train --config configs/base.yaml --run-name smoke
 uv run python -m pad evaluate --config configs/base.yaml --ckpt results/smoke/best.pt --split test
+# (the published results.tar.gz already contains a ready model:
+#   expect --ckpt results/20260902_140219_bench/best.pt)
 
 # 5. predict a single image with a probability
-uv run python -m pad predict --image_path path/to/img.jpg --ckpt results/smoke/best.pt
-uv run python -m pad predict --image_path img.jpg --ckpt best.pt --bbox "10 20 260 300"
+uv run python -m pad predict --image_path path/to/img.jpg --ckpt results/20260902_140219_bench/best.pt
+# (results/smoke/best.pt = a locally-trained smoke model, if present)
+uv run python -m pad predict --image_path img.jpg --ckpt results/20260902_140219_bench/best.pt --bbox "10 20 260 300"
 ```
 
 All CLIs use **Google Fire** (no argparse): flags are just keyword arguments
@@ -155,12 +158,12 @@ Moved to report.md section 7 (Experiment matrix & status), which marks which exp
 
 ```bash
 uv run python -m pad predict --image_path path/to/img.jpg \
-    --ckpt results/run/best.pt --config configs/base.yaml
+    --ckpt results/20260902_140219_bench/best.pt --config configs/base.yaml
 
 # optional face bbox "x1 y1 x2 y2" (the model was trained on extended face crops);
 # without it, InsightFace (SCRFD) auto-detects the face:
-uv run python -m pad predict --image_path img.jpg --ckpt best.pt --bbox "10 20 260 300"
-uv run python -m pad predict --image_path img.jpg --ckpt best.pt       # auto face detection
+uv run python -m pad predict --image_path img.jpg --ckpt results/20260902_140219_bench/best.pt --bbox "10 20 260 300"
+uv run python -m pad predict --image_path img.jpg --ckpt results/20260902_140219_bench/best.pt  # auto face detection
 
 # disable flip TTA, pick device, disable auto-detection:
 uv run python -m pad predict ... --no-tta --device cpu --auto-face false

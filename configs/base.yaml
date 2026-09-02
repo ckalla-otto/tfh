@@ -5,7 +5,9 @@
 out_dir: results
 
 data:
-  root: /Users/christiankalla/Downloads/CelebA_Spoof   # on-disk mirror (Data/{train,test}/...)
+  root: data/raw/CelebA_Spoof    # on-disk mirror (Data/{train,test}/...) - ONLY used by `pad prepare` to rebuild the subset from source.
+                                  # train / evaluate / predict do NOT need it - they read the prepared `data/dataset` (images) + `data/subsets` (CSVs),
+                                  # which a fresh clone can get by unpacking the published `data_remote.zip` (see README's Ready-made archives).
   subsets_dir: data/subsets             # split CSVs + balance report (produced by `pad prepare`)
   dataset_dir: data/dataset             # organized image tree (produced by `pad export`)
 
