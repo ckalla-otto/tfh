@@ -52,7 +52,17 @@ def per_type_df(pred: dict, threshold: float) -> pd.DataFrame:
 
 
 def _hard_samples(pred: dict, threshold: float, top_k: int) -> pd.DataFrame:
-    """Per-class top-k samples closest to the decision boundary."""
+    """Per-class top-k hard samples: MISCLASSIFIED first, then near-boundary.
+
+    A sample is "hard" when it is wrongly classified:
+      - spoof class (true=0): misclassified iff score_live > threshold (pred "live")
+      - live class   (true=1): misclassified iff score_live <= threshold (pred "spoof")
+    Misclassified samples are ranked by how *confidently wrong* they are
+    (largest |score_live - threshold| first). If a class has fewer than `top_k`
+    misclassified samples, it is padded with the *nearest-to-boundary* correctly
+    classified samples (smallest |score_live - threshold|), which are flagged
+    `is_error=False` so the report/visuals can distinguish them.
+    """
     df = pd.DataFrame(
         {
             "image_id": pred["keys"],
@@ -70,10 +80,33 @@ def _hard_samples(pred: dict, threshold: float, top_k: int) -> pd.DataFrame:
     df["boundary_dist"] = (df["score_live"] - threshold).abs()
     out = []
     for cls in range(len(SPOOF_TYPES)):
-        part = df[df["spoof_type"] == cls].nsmallest(top_k, "boundary_dist")
+        part = df[df["spoof_type"] == cls]
+        is_live = cls == 0
+        # misclassified: predicted live/surviving when it should not, or vice-versa.
+        err_mask = (part["score_live"] > threshold) != is_live
+        err = part[err_mask]
+        ok = part[~err_mask]
+        # Most confidently wrong first (largest separation from the threshold).
+        err = err.sort_values("boundary_dist", ascending=False)
+        # Correctly-classified padding: nearest to the boundary (most ambiguous).
+        ok = ok.sort_values("boundary_dist", ascending=True)
+        n_err = min(len(err), top_k)
+        pad_n = max(0, top_k - n_err)
+        chosen = []
+        if n_err:
+            chosen.append(err.head(n_err))
+        if pad_n and len(ok):
+            chosen.append(ok.head(pad_n))
+        if not chosen:
+            continue
+        part = pd.concat(chosen, ignore_index=False)
         part = part.copy()
         part["spoof_type_name"] = IDX_TO_CLASS[cls]
+        # misclassified flag = the original error mask, recomputed on the sub-index.
+        part["is_error"] = (part["score_live"] > threshold) != is_live
         out.append(part)
+    if not out:
+        return pd.DataFrame()
     return pd.concat(out, ignore_index=True)
 
 
@@ -81,40 +114,44 @@ def hard_samples_markdown(hard: pd.DataFrame, threshold: float) -> str:
     lines = [
         f"# Per-class hard samples (boundary = P(live) = {threshold:.4f})",
         "",
-        "Within each class, rows are ordered by `score_live` (the P(live) output):",
-        "spoof classes list the highest spoofer P(live) first (closest to / most confidently",
-        "mistaken for live); the `live` class lists the lowest P(live) first (live most",
-        "mistaken for spoof). `boundary_dist = |score_live - threshold|`; the smallest",
-        "value per class is the hardest-to-decide sample.",
+        "Within each class, rows are ordered by **how confidently wrong** the model",
+        "was: for spoof classes the misclassified samples with the **highest** P(live)",
+        "come first (most confidently mistaken for live); for the `live` class the",
+        "misclassified samples with the **lowest** P(live) come first (most",
+        "confidently mistaken for spoof). `is_error=1` marks a sample the model got",
+        "wrong (misclassified); `is_error=0` rows are correctly-classified samples",
+        "padded in when a class has fewer than `top_k` errors (nearest to the",
+        "boundary). `boundary_dist = |score_live - threshold|`.",
         "",
     ]
     for cls in range(len(SPOOF_TYPES)):
         part = hard[hard["spoof_type"] == cls]
-        # Most-deceptive first: spoof -> highest P(live); live -> lowest P(live).
-        if cls == 0:
-            part = part.sort_values("score_live", ascending=True)
-        else:
-            part = part.sort_values("score_live", ascending=False)
+        if len(part) == 0:
+            continue
+        # errors (is_error=1) first, then padding; each block by confidence-of-error.
+        err = part[part["is_error"]].sort_values("boundary_dist", ascending=False)
+        ok = part[~part["is_error"]].sort_values("boundary_dist", ascending=True)
+        part = pd.concat([err, ok], ignore_index=False)
         lines.append(f"## {IDX_TO_CLASS[cls]} ({len(part)})")
-        if len(part):
-            show = part[
-                [
-                    "image_id",
-                    "true_label",
-                    "score_live",
-                    "boundary_dist",
-                    "spoof_pred",
-                    "env",
-                    "illum",
-                ]
+        show = part[
+            [
+                "image_id",
+                "true_label",
+                "score_live",
+                "is_error",
+                "boundary_dist",
+                "spoof_pred",
+                "env",
+                "illum",
             ]
-            try:
-                lines.append(show.to_markdown(index=False))
-            except ImportError:
-                lines.append(show.to_string(index=False))
-            lines.append(
-                f"![{IDX_TO_CLASS[cls]} top hard samples](hard_visuals/{IDX_TO_CLASS[cls]}.png)"
-            )
+        ]
+        try:
+            lines.append(show.to_markdown(index=False))
+        except ImportError:
+            lines.append(show.to_string(index=False))
+        lines.append(
+            f"![{IDX_TO_CLASS[cls]} top hard samples](hard_visuals/{IDX_TO_CLASS[cls]}.png)"
+        )
         lines.append("")
     return "\n".join(lines)
 
@@ -142,12 +179,14 @@ def make_hard_visuals(
     nrows = 1
     # 2 rows only if we ever exceed 5; top_n is capped at 5 so single row.
     for cls in range(len(SPOOF_TYPES)):
-        part = hard[hard["spoof_type"] == cls].head(top_n)
+        part = hard[hard["spoof_type"] == cls]
         if len(part) == 0:
             continue
-        is_live = cls == 0
-        # match the markdown order (most-deceptive first)
-        part = part.sort_values("score_live", ascending=is_live).head(top_n)
+        # match the markdown order: misclassified (most confidently wrong) first,
+        # then correctly-classified padding (nearest to the boundary).
+        err = part[part["is_error"]].sort_values("boundary_dist", ascending=False)
+        ok = part[~part["is_error"]].sort_values("boundary_dist", ascending=True)
+        part = pd.concat([err, ok], ignore_index=False).head(top_n)
 
         fig, axes = plt.subplots(nrows, ncols, figsize=(3.6 * ncols, 3.6 * nrows))
         axes = axes if isinstance(axes, np.ndarray) else np.array([axes])
@@ -166,8 +205,9 @@ def make_hard_visuals(
                     transform=ax.transAxes,
                 )
             color = "lime" if row["true_label"] == 1 else "crimson"
+            tag = "ERROR" if row["is_error"] else "borderline"
             ax.set_title(
-                f"P(live)={row['score_live']:.3f}\ntrue={'live' if row['true_label'] == 1 else 'spoof'} "
+                f"P(live)={row['score_live']:.3f} [{tag}]  true={'live' if row['true_label'] == 1 else 'spoof'} "
                 f"pred={IDX_TO_CLASS[int(row['spoof_pred'])] if row['spoof_pred'] >= 0 else 'n/a'}",
                 fontsize=9,
                 color=color,

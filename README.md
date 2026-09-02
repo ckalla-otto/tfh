@@ -82,6 +82,26 @@ data/
 - Default subset: **20,000** images — train 14k / val 3k / test 3k (1,400 /
   300 / 300 per spoof type), identity-exclusive and equal per class.
 
+### Ready-made archives
+
+Both build directories are published and can be restored by downloading and
+unpacking:
+
+- `data/` (self-contained dataset: labels, subset CSVs, and the image tree):
+  ```bash
+  curl -L -o data_remote.zip https://storage.googleapis.com/tfh_data_ck/data_remote.zip
+  unzip -q data_remote.zip -d ./data_remote  # note: archive may nest under a top folder;
+  # then point configs at it or copy into the expected data/ layout.
+  ```
+- `results/` (trained model artifacts + per-run eval reports):
+  ```bash
+  curl -L -o results.tar.gz https://storage.googleapis.com/tfh_data_ck/results.tar.gz
+  tar xzf results.tar.gz -C .  # restores a `results/` directory
+  ```
+
+> `data/` and `results/` are gitignored build artifacts, so this is the
+> canonical way to retrieve them without re-downloading the source mirror or re-training.
+
 ## Preparing the dataset
 
 Two steps, documented in detail in **[`docs/data_pipeline.md`](docs/data_pipeline.md)**:
@@ -129,19 +149,7 @@ tfh/
 
 ## Experiment matrix
 
-| # | Config | Question |
-|---|--------|----------|
-| 0 | BCE-only | backbone baseline |
-| 1 | BCE + depth | core method |
-| 2 | λ sweep {0.1, 1, 10} | loss balance |
-| 3 | HF branch (γ=0) | texture value alone |
-| 4 | full (BCE+depth+HF+spoof-type) | proposed method |
-| 4b | spoof-type off | semantic aux value |
-| 4c | MSE vs Smooth-L1, conf-weight on/off | depth loss design |
-| 5 | tight vs extended crop | context hypothesis |
-| 6 | depth strategy {per-type, all-flat, all-estimated} | 3D-mask handling |
-| 7 | subset 5k/15k/40k | data efficiency |
-| 8 | leave-one-attack-out | generalization |
+Moved to report.md section 7 (Experiment matrix & status), which marks which experiment was actually run.
 
 ## Prediction (single image)
 
