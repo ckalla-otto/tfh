@@ -28,6 +28,19 @@ breakdown, confusion matrix, and per-class **hard-sample reports**.
 uv venv --python 3.13
 uv sync --extra dev
 
+> **Skip the dataset-prepare steps** by downloading the published data artifact:
+>
+> ```bash
+> curl -L -o data_remote.zip https://storage.googleapis.com/tfh_data_ck/data_remote.zip
+> unzip -q data_remote.zip -d ./   # unpack so that  data/dataset  and  data/subsets  land at the repo root
+> ```
+>
+> This restores the prepared 20k subset (images, labels, split CSVs), so you can
+> skip  pad prepare  and  pad export  entirely and go straight to training or
+> inference. Steps 0-5 below are the **from-scratch** path for when you have the
+> raw mirror.
+>
+
 # 0. fetch + verify the official annotations (one time per machine)
 bash scripts/fetch_annotations.sh
 
