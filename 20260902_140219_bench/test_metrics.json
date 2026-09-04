@@ -1,0 +1,104 @@
+{
+  "metrics": {
+    "threshold": 0.031996097415685654,
+    "APCER": 0.05185185185185185,
+    "BPCER": 0.0033333333333333335,
+    "ACER": 0.027592592592592592,
+    "AUC": 0.9959,
+    "HTER": 0.027592592592592592,
+    "TPR@FPR0.01": 0.86,
+    "n_live": 300,
+    "n_spoof": 2700,
+    "ACER_ci95": [
+      0.022625693446953785,
+      0.03276606248777185
+    ]
+  },
+  "per_type": [
+    {
+      "spoof_type": "live",
+      "n": 300,
+      "error_rate": 0.0033333333333333335,
+      "depth_var": 0.0,
+      "hf_energy": 0.0004953794414177537,
+      "mean_score_live": 0.9458061456680298
+    },
+    {
+      "spoof_type": "photo",
+      "n": 300,
+      "error_rate": 0.0033333333333333335,
+      "depth_var": 0.0,
+      "hf_energy": 0.00023292787955142558,
+      "mean_score_live": 0.0011922653065994382
+    },
+    {
+      "spoof_type": "poster",
+      "n": 300,
+      "error_rate": 0.0,
+      "depth_var": 0.0,
+      "hf_energy": 0.0002909740142058581,
+      "mean_score_live": 2.6572210117592476e-05
+    },
+    {
+      "spoof_type": "a4",
+      "n": 300,
+      "error_rate": 0.0033333333333333335,
+      "depth_var": 0.0,
+      "hf_energy": 0.00022449220705311745,
+      "mean_score_live": 0.0004957817145623267
+    },
+    {
+      "spoof_type": "face_mask",
+      "n": 300,
+      "error_rate": 0.006666666666666667,
+      "depth_var": 0.0,
+      "hf_energy": 0.0004849784018006176,
+      "mean_score_live": 0.0006308896117843688
+    },
+    {
+      "spoof_type": "upper_body_mask",
+      "n": 300,
+      "error_rate": 0.0,
+      "depth_var": 0.0,
+      "hf_energy": 2.403088001301512e-05,
+      "mean_score_live": 0.0001650450867600739
+    },
+    {
+      "spoof_type": "region_mask",
+      "n": 300,
+      "error_rate": 0.0,
+      "depth_var": 0.0,
+      "hf_energy": 0.00021945807384327054,
+      "mean_score_live": 0.00014079590619076043
+    },
+    {
+      "spoof_type": "pc_pad",
+      "n": 300,
+      "error_rate": 0.056666666666666664,
+      "depth_var": 0.0,
+      "hf_energy": 0.0002897260128520429,
+      "mean_score_live": 0.016740938648581505
+    },
+    {
+      "spoof_type": "phone",
+      "n": 300,
+      "error_rate": 0.09333333333333334,
+      "depth_var": 0.0,
+      "hf_energy": 8.384066313738003e-05,
+      "mean_score_live": 0.04473167285323143
+    },
+    {
+      "spoof_type": "3d_mask",
+      "n": 300,
+      "error_rate": 0.30333333333333334,
+      "depth_var": 0.0,
+      "hf_energy": 4.5575114199891686e-05,
+      "mean_score_live": 0.17423291504383087
+    }
+  ],
+  "n": 3000,
+  "best_val": {
+    "acer": 0.034999999999999996,
+    "epoch": 14
+  }
+}
